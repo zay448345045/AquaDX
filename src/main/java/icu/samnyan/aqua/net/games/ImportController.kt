@@ -3,8 +3,10 @@ package icu.samnyan.aqua.net.games
 import ext.*
 import icu.samnyan.aqua.net.db.AquaNetUser
 import icu.samnyan.aqua.net.db.AquaUserServices
+import icu.samnyan.aqua.net.Fedy
 import icu.samnyan.aqua.net.utils.AquaNetProps
 import icu.samnyan.aqua.net.utils.SUCCESS
+import icu.samnyan.aqua.sega.general.model.Card
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.repository.NoRepositoryBean
@@ -15,6 +17,11 @@ import java.util.*
 import kotlin.io.path.Path
 import kotlin.io.path.writeText
 import kotlin.reflect.KClass
+import org.springframework.context.annotation.Lazy
+
+data class ExportOptions(
+    val playlogAfter: String? = null
+)
 
 // Import class with renaming
 data class ImportClass<T : Any>(
@@ -54,6 +61,8 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
     val exportFields: Map<String, Var<ExportModel, Any>>,
     val exportRepos: Map<Var<ExportModel, Any>, IUserRepo<UserModel, *>>,
     val artemisRenames: Map<String, ImportClass<*>>,
+    val customExporters: Map<Var<ExportModel, Any>, (UserModel, ExportOptions) -> Any?> = emptyMap(),
+    val customImporters: Map<Var<ExportModel, Any>, (ExportModel, UserModel) -> Unit> = emptyMap()
 ) {
     abstract fun createEmpty(): ExportModel
     abstract val userDataRepo: GenericUserDataRepo<UserModel>
@@ -62,6 +71,7 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
     @Autowired lateinit var netProps: AquaNetProps
     @Autowired lateinit var transManager: PlatformTransactionManager
     val trans by lazy { TransactionTemplate(transManager) }
+    @Autowired @Lazy lateinit var fedy: Fedy
 
     init {
         artemisRenames.values.forEach {
@@ -72,12 +82,17 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
     val listRepos = exportRepos.filter { it.key returns List::class }
     val singleRepos = exportRepos.filter { !(it.key returns List::class) }
 
-    fun export(u: AquaNetUser) = createEmpty().apply {
+    fun export(u: AquaNetUser): ExportModel = export(u.ghostCard, ExportOptions())
+
+    fun export(c: Card, options: ExportOptions) = createEmpty().apply {
         gameId = game
-        userData = userDataRepo.findByCard(u.ghostCard) ?: (404 - "User not found")
+        userData = userDataRepo.findByCard(c) ?: (404 - "User not found")
         exportRepos.forEach { (f, u) ->
             if (f returns List::class) f.set(this, u.findByUser(userData))
             else u.findSingleByUser(userData)()?.let { f.set(this, it) }
+        }
+        customExporters.forEach { (f, exporter) ->
+            exporter(userData, options)?.let { f.set(this, it) }
         }
     }
 
@@ -95,6 +110,7 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
 
         val lists = listRepos.toList().associate { (f, r) -> r to f.get(export) as List<IUserEntity<UserModel>> }.vNotNull()
         val singles = singleRepos.toList().associate { (f, r) -> r to f.get(export) as IUserEntity<UserModel> }.vNotNull()
+        var repoFieldMap = exportRepos.toList().associate { (f, r) -> r to f }
 
         // Validate new user data
         // Check that all ids are 0 (this should be true since all ids are @JsonIgnore)
@@ -126,7 +142,13 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
             // Save new data
             singles.forEach { (repo, single) -> (repo as IUserRepo<UserModel, Any>).save(single) }
             lists.forEach { (repo, list) -> (repo as IUserRepo<UserModel, Any>).saveAll(list) }
+            // Handle custom importers
+            customImporters.forEach { (field, importer) ->
+                importer(export, nu)
+            }
         }
+
+        Fedy.getGameName(game)?.let { fedy.onDataUpdated(u.ghostCard.extId, it, true) }
 
         SUCCESS
     }

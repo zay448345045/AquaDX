@@ -41,7 +41,10 @@ fun OngekiController.initUser() {
 
     "GetUserBpBase".unpaged { empty }
     "GetUserRatinglog".unpaged { empty }
-    "GetUserRegion".unpaged { empty }
+    "GetUserRegion".unpaged {
+        db.regions.findByUser_Card_ExtId(uid)
+            .map { mapOf("regionId" to it.regionId, "playCount" to it.playCount) }
+    }
 
     "GetUserTradeItem".unpaged {
         val start = parsing { data["startChapterId"]!!.int }
@@ -112,7 +115,29 @@ fun OngekiController.initUser() {
     }
 
     "GetUserPreview" api@ {
-        val u = db.data.findByCard_ExtId(uid)() ?: return@api mapOf("userId" to uid, "lastPlayDate" to null)
+	    val u = db.data.findByCard_ExtId(uid)() ?: return@api mapOf(
+		    "userId" to uid,
+		    "isLogin" to false,
+		    "lastLoginDate" to "0000-00-00 00:00:00",
+		    "userName" to "",
+		    "reincarnationNum" to 0,
+		    "level" to 0,
+		    "exp" to 0,
+		    "playerRating" to 0,
+		    "lastGameId" to "",
+		    "lastRomVersion" to "",
+		    "lastDataVersion" to "",
+		    "lastPlayDate" to "",
+		    "nameplateId" to 0,
+		    "trophyId" to 0,
+		    "cardId" to 0,
+		    "dispPlayerLv" to 0,
+		    "dispRating" to 0,
+		    "dispBP" to 0,
+		    "headphone" to 0,
+		    "banStatus" to 0,
+		    "isWarningConfirmed" to true
+	    )
         val o = db.option.findSingleByUser(u)()
 
         val res = mutableMapOf(
@@ -137,26 +162,13 @@ fun OngekiController.initUser() {
         )
 
         if (u.card?.status == CardStatus.MIGRATED_TO_MINATO) {
-            res["userName"] = "Migrated"
-            res["level"] = 0
-            res["exp"] = 0
-            res["playerRating"] = 0
-            res["newPlayerRating"] = 0
+            res["userName"] = "${res["userName"]}＠ＡｑｕａＤＸ"
         }
 
         res
     }
 
-    "GameLogin" {
-        val user = db.data.findByCard_ExtId(uid)()
-
-        if (user?.card?.status == CardStatus.MIGRATED_TO_MINATO) {
-            """{"returnCode":"0"}"""
-        }
-        else {
-            """{"returnCode":"1"}"""
-        }
-    }
+    "GameLogin" { """{"returnCode":"1"}""" }
 
     "GetUserRecentRating".unpaged {
         db.generalData.findByUser_Card_ExtIdAndPropertyKey(uid, "recent_rating_list")()?.let { recent ->

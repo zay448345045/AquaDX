@@ -70,7 +70,7 @@
         if (ubKey == 'namePlateId') ubKey = 'nameplateId'
         if (ubKey == 'systemVoiceId') ubKey = 'voiceId'
         return [{ iKey, ubKey: ubKey as keyof UserBox,
-          items: profile.items.filter(x => x.itemKind === iKind)
+          items: profile.items.filter(x => x.itemKind === iKind || (iKey == "trophy" && x.itemKind == 3))
         }]
       }
 
@@ -104,6 +104,133 @@
       .then(data => download(JSON.stringify(data), `AquaDX_chu3_export_${userbox.userName}.json`))
       .catch(e => error = e.message)
       .finally(() => submitting = "")
+  }
+
+  async function exportBatchManual() {
+    submitting = "batchExport"
+
+    const DIFFICULTY_MAP: Record<number, string> = {
+      0: "BASIC",
+      1: "ADVANCED",
+      2: "EXPERT",
+      3: "MASTER",
+      4: "ULTIMA"
+    } as const // WORLD'S END scores not supported by Tachi
+    const DAN_MAP: Record<number, string> = {
+      1: "DAN_I",
+      2: "DAN_II",
+      3: "DAN_III",
+      4: "DAN_IV",
+      5: "DAN_V",
+      6: "DAN_INFINITE"
+    } as const
+    const SKILL_IDS: Record<number, string> = {
+      100009: 'CATASTROPHY',
+      102009: 'CATASTROPHY',
+      103007: 'CATASTROPHY',
+
+      100008: 'ABSOLUTE',
+      101008: 'ABSOLUTE',
+      102008: 'ABSOLUTE',
+      103006: 'ABSOLUTE',
+
+      100007: 'BRAVE',
+      101007: 'BRAVE',
+      102007: 'BRAVE',
+      103005: 'BRAVE',
+
+      100005: 'HARD',
+      100006: 'HARD',
+      101004: 'HARD',
+      101005: 'HARD',
+      101006: 'HARD',
+      102004: 'HARD',
+      102005: 'HARD',
+      102006: 'HARD',
+      103002: 'HARD',
+      103003: 'HARD',
+      103004: 'HARD'
+    } as const
+    // Shamelessly stolen from https://github.com/beer-psi/saekawa/commit/b3bee13e126df2f4e2a449bdf971debb8c95ba40, needs to be updated every major version :(
+
+    let data: any
+    let output: any = {
+      "meta": {
+        "game": "chunithm",
+        "playtype": "Single",
+        "service": "AquaDX-Manual"
+      },
+      "scores": [],
+      "classes": {}
+    }
+
+    try {
+      data = await GAME.export('chu3')
+    }
+    catch (e) {
+      error = e.message
+      submitting = ""
+      return
+    }
+
+    if (data && "userPlaylogList" in data) {
+      for (let score of data.userPlaylogList) {
+        let clearLamp = null
+        let noteLamp = null
+
+        if (score.level in DIFFICULTY_MAP) {
+          if (score.isClear) {
+            clearLamp = score.skillId in SKILL_IDS ? SKILL_IDS[score.skillId] : "CLEAR"
+          }
+          else {
+            clearLamp = "FAILED"
+          }
+
+          if (score.score === 1010000) {
+            noteLamp = "ALL JUSTICE CRITICAL"
+          }
+          else if (score.isAllJustice) {
+            noteLamp = "ALL JUSTICE"
+          }
+          else if (score.isFullCombo) {
+            noteLamp = "FULL COMBO"
+          }
+          else {
+            noteLamp = "NONE"
+          }
+
+          output.scores.push({
+            "score": score.score,
+            "clearLamp": clearLamp,
+            "noteLamp": noteLamp,
+            "judgements": {
+              "jcrit": score.judgeHeaven + score.judgeCritical,
+              "justice": score.judgeJustice,
+              "attack": score.judgeAttack,
+              "miss": score.judgeGuilty
+            },
+            "matchType": "inGameID",
+            "identifier": score.musicId.toString(),
+            "difficulty": DIFFICULTY_MAP[score.level],
+            "timeAchieved": score.sortNumber * 1000,
+            "optional": {
+              "maxCombo": score.maxCombo
+            }
+          })
+        }
+      }
+    }
+
+    if (data.userData.classEmblemMedal in DAN_MAP) {
+      output.classes["dan"] = DAN_MAP[data.userData.classEmblemMedal]
+    }
+
+    if (data.userData.classEmblemBase in DAN_MAP) {
+      output.classes["emblem"] = DAN_MAP[data.userData.classEmblemBase]
+    }
+
+    download(JSON.stringify(output), `AquaDX_chu3_BatchManualExport_${userbox.userName}.json`)
+    submitting = ""
   }
 
   function download(data: string, filename: string) {
@@ -300,6 +427,10 @@
   <button class="exportButton" on:click={exportData}>
     <Icon icon="bxs:file-export"/>
     {t('settings.export')}
+  </button>
+  <button class="exportBatchManualButton" on:click={exportBatchManual}>
+    <Icon icon="bxs:file-export"/>
+    {t('settings.batchManualExport')}
   </button>
 </div>
 {/if}

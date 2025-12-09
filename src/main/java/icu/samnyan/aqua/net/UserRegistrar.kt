@@ -12,6 +12,8 @@ import icu.samnyan.aqua.sega.general.model.CardStatus
 import icu.samnyan.aqua.sega.general.service.CardService
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.context.annotation.Lazy
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
@@ -29,12 +31,13 @@ class UserRegistrar(
     val geoIP: GeoIP,
     val jwt: JWT,
     val confirmationRepo: EmailConfirmationRepo,
+    val resetPasswordRepo: ResetPasswordRepo,
     val cardRepo: CardRepository,
-    val cardService: CardService,
     val validator: AquaUserServices,
     val emailProps: EmailProperties,
     final val paths: PathProps
 ) {
+    @Autowired @Lazy lateinit var fedy: Fedy
     val portraitPath = paths.aquaNetPortrait.path()
 
     companion object {
@@ -66,29 +69,7 @@ class UserRegistrar(
         val country = geoIP.getCountry(ip)
 
         // Create user
-        val u = async { AquaNetUser(
-            username = validator.checkUsername(username),
-            email = validator.checkEmail(email),
-            pwHash = validator.checkPwHash(password),
-            regTime = millis(), lastLogin = millis(), country = country,
-        ) }
-
-        // Create a ghost card
-        val card = Card().apply {
-            extId = cardService.randExtID(cardExtIdStart, cardExtIdEnd)
-            luid = extId.toString()
-            registerTime = LocalDateTime.now()
-            accessTime = registerTime
-            aquaUser = u
-            isGhost = true
-        }
-        u.ghostCard = card
-
-        // Save the user
-        async {
-            userRepo.save(u)
-            cardRepo.save(card)
-        }
+        val u = async { validator.create(username, email, password, country) }
 
         // Send confirmation email
         emailService.sendConfirmation(u)
@@ -111,8 +92,6 @@ class UserRegistrar(
         val user = async { userRepo.findByEmailIgnoreCase(email) ?: userRepo.findByUsernameIgnoreCase(email) }
             ?: (400 - "User not found")
         if (!hasher.matches(password, user.pwHash)) 400 - "Invalid password"
-
-        if (user.ghostCard.status == CardStatus.MIGRATED_TO_MINATO) 400 - "Login not allowed: Card has been migrated to Minato."
 
         // Check if email is verified
         if (!user.emailConfirmed && emailProps.enable) {
@@ -144,6 +123,70 @@ class UserRegistrar(
         return mapOf("token" to token)
     }
 
+    @API("/reset-password")
+    @Doc("Reset password with a token sent through email to the user, if it exists.", "Success message")
+    suspend fun resetPassword(
+        @RP email: Str, @RP turnstile: Str,
+        request: HttpServletRequest
+    ) : Any {
+
+        // Check captcha
+        val ip = geoIP.getIP(request)
+        log.info("Net: /user/reset-password from $ip : $email")
+        if (!turnstileService.validate(turnstile, ip)) 400 - "Invalid captcha"
+
+        // Check if user exists, treat as email / username
+        val user = async { userRepo.findByEmailIgnoreCase(email) ?: userRepo.findByUsernameIgnoreCase(email) }
+            ?: return SUCCESS // obviously dont tell them if the email exists or not
+
+        // Check if email is verified
+        if (!user.emailConfirmed && emailProps.enable) 400 - "Email not verified"
+
+        val resets = async { resetPasswordRepo.findByAquaNetUserAuId(user.auId) }
+        val lastReset = resets.maxByOrNull { it.createdAt }
+
+        if (lastReset?.createdAt?.plusSeconds(60)?.isAfter(Instant.now()) == true) {
+            400 - "Reset request rejected - STATE_0"
+        }
+
+        // Check if we have sent more than 3 confirmation emails in the last 24 hours
+        if (resets.count { it.createdAt.plusSeconds(60 * 60 * 24).isAfter(Instant.now()) } > 3) {
+            400 - "Reset request rejected - STATE_1"
+        }
+
+        // Send a password reset email
+        emailService.sendPasswordReset(user)
+
+        return SUCCESS
+    }
+
+    @API("/change-password")
+    @Doc("Change a user's password given a reset code", "Success message")
+    suspend fun changePassword(
+        @RP token: Str, @RP password: Str,
+        request: HttpServletRequest
+    ) : Any {
+
+        // Find the reset token
+        val reset = async { resetPasswordRepo.findByToken(token) }
+
+        // Check if the token is valid
+        if (reset == null) 400 - "Invalid token"
+
+        // Check if the token is expired
+        if (reset.createdAt.plusSeconds(60 * 60 * 24).isBefore(Instant.now())) 400 - "Token expired"
+
+        // Change the password
+        val u = reset.aquaNetUser
+        async { userRepo.save(u.apply { pwHash = validator.checkPwHash(password) }) }
+        fedy.onUserUpdated(u)
+
+        // Remove the token from the list
+        resetPasswordRepo.delete(reset)
+
+        return SUCCESS
+    }
+
     @API("/confirm-email")
     @Doc("Confirm email address with a token sent through email to the user.", "Success message")
     suspend fun confirmEmail(@RP token: Str): Any {
@@ -158,8 +201,13 @@ class UserRegistrar(
         // Check if the token is expired
         if (confirmation.createdAt.plusSeconds(60 * 60 * 24).isBefore(Instant.now())) 400 - "Token expired"
 
+        // Check if the email is already confirmed
+        val u = confirmation.aquaNetUser
+        if (u.emailConfirmed) 400 - "Email already confirmed"
+
         // Confirm the email
-        async { userRepo.save(confirmation.aquaNetUser.apply { emailConfirmed = true }) }
+        async { userRepo.save(u.apply { emailConfirmed = true }) }
+        fedy.onUserUpdated(u, isNew = true)
 
         return SUCCESS
     }
@@ -176,16 +224,16 @@ class UserRegistrar(
     @API("/setting")
     @Doc("Validate and set a user setting field.", "Success message")
     suspend fun setting(@RP token: Str, @RP key: Str, @RP value: Str) = jwt.auth(token) { u ->
-        // Check if the key is a settable field
-        val field = SETTING_FIELDS.find { it.name == key } ?: (400 - "Invalid setting")
-
         async {
-            // Set the validated field
-            field.setter.call(u, field.checker.call(validator, value))
+            validator.update(u, key, value)
 
             // Save the user
             userRepo.save(u)
+
+            // Clear all tokens if changing password
+            if (key == "pwHash") validator.clearAllSessions(u)
         }
+        fedy.onUserUpdated(u)
 
         SUCCESS
     }
@@ -224,7 +272,21 @@ class UserRegistrar(
             (portraitPath / name).writeBytes(bytes)
             userRepo.save(u.apply { profilePicture = name })
         }
+        fedy.onUserUpdated(u)
 
         SUCCESS
     }
+
+    @API("/change-region")
+    @Doc("Change the region of the user.", "Success message")
+    suspend fun changeRegion(@RP token: Str, @RP regionId: Str) = jwt.auth(token) { u ->
+        // Check if the region is valid (between 1 and 47)
+        val r = regionId.toIntOrNull() ?: (400 - "Invalid region")
+        if (r !in 1..47) 400 - "Invalid region"
+        async {
+	        userRepo.save(u.apply { region = r.toString() })
+        }
+
+        SUCCESS
+        }
 }

@@ -16,6 +16,12 @@ import lombok.AllArgsConstructor
 import lombok.Data
 import lombok.NoArgsConstructor
 import java.time.LocalDateTime
+import com.fasterxml.jackson.databind.annotation.JsonSerialize
+import java.time.format.DateTimeFormatter
+import com.fasterxml.jackson.databind.JsonSerializer
+import com.fasterxml.jackson.databind.SerializerProvider
+import com.fasterxml.jackson.core.JsonGenerator
+import java.time.LocalDate
 
 @MappedSuperclass
 open class Mai2UserEntity : BaseEntity(), IUserEntity<Mai2UserDetail> {
@@ -446,9 +452,9 @@ class Mai2UserPlaylog : Mai2UserEntity(), IGenericGamePlaylog {
         get() = maxCombo == totalCombo
 
     override val isAllPerfect: Boolean
-        get() = tapMiss + tapGood + tapGreat == 0 && 
-            holdMiss + holdGood + holdGreat == 0 && 
-            slideMiss + slideGood + slideGreat == 0 && 
+        get() = tapMiss + tapGood + tapGreat == 0 &&
+            holdMiss + holdGood + holdGreat == 0 &&
+            slideMiss + slideGood + slideGreat == 0 &&
             touchMiss + touchGood + touchGreat == 0 &&
             breakMiss + breakGood + breakGreat == 0
 }
@@ -526,10 +532,14 @@ class Mai2UserKaleidx : Mai2UserEntity() {
     var totalDeluxscore = 0
     var bestAchievement = 0
     var bestDeluxscore = 0
+    @JsonSerialize(using = MaimaiDateSerializer::class)
     var bestAchievementDate: LocalDateTime? = null
+    @JsonSerialize(using = MaimaiDateSerializer::class)
     var bestDeluxscoreDate: LocalDateTime? = null
     var playCount = 0
+    @JsonSerialize(using = MaimaiDateSerializer::class)
     var clearDate: LocalDateTime? = null
+    @JsonSerialize(using = MaimaiDateSerializer::class)
     var lastPlayDate: LocalDateTime? = null
     var isInfoWatched = false
 }
@@ -540,4 +550,22 @@ class Mai2UserIntimate : Mai2UserEntity() {
     var partnerId = 1;
     var intimateLevel = 0;
     var intimateCountRewarded = 0;
+}
+
+@Entity(name = "Maimai2UserRegions")
+@Table(
+    name = "maimai2_user_regions",
+    uniqueConstraints = [UniqueConstraint(columnNames = ["user_id", "region_id"])]
+)
+class UserRegions : Mai2UserEntity() {
+    var regionId = 0
+    var playCount = 1
+    var created: String = LocalDate.now().toString()
+}
+
+val MAIMAI_DATETIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.0")
+class MaimaiDateSerializer : JsonSerializer<LocalDateTime>() {
+    override fun serialize(v: LocalDateTime, j: JsonGenerator, s: SerializerProvider) {
+        j.writeString(v.format(MAIMAI_DATETIME))
+    }
 }

@@ -19,6 +19,7 @@ export interface AquaNetUser {
   email: string
   displayName: string
   country: string
+  region:string
   lastLogin: number
   regTime: number
   profileLocation: string
@@ -106,7 +107,8 @@ export interface GenericGameSummary {
   lastVersion: string
   ratingComposition: { [key: string]: any }
   recent: GenericGamePlaylog[]
-  rival?: boolean
+  rival?: boolean,
+  favorites?: number[]
 }
 
 export interface MusicMeta {

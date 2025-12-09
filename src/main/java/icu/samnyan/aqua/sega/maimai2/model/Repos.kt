@@ -57,8 +57,6 @@ interface Mai2UserExtendRepo : Mai2UserLinked<Mai2UserExtend>
 interface Mai2UserFavoriteRepo : Mai2UserLinked<Mai2UserFavorite> {
     fun findByUserAndItemKind(user: Mai2UserDetail, kind: Int): Optional<Mai2UserFavorite>
 
-    fun findByUserIdAndItemKind(userId: Long, kind: Int): List<Mai2UserFavorite>
-
     fun findByUser_Card_ExtIdAndItemKind(userId: Long, kind: Int): Optional<Mai2UserFavorite>
 }
 
@@ -104,6 +102,7 @@ interface Mai2UserPlaylogRepo : GenericPlaylogRepo<Mai2UserPlaylog>, Mai2UserLin
         musicId: Int,
         userPlayDate: String
     ): MutableList<Mai2UserPlaylog>
+    fun findByUserAndUserPlayDateAfter(user: Mai2UserDetail, userPlayDate: String): List<Mai2UserPlaylog>
 }
 
 interface Mai2UserPrintDetailRepo : JpaRepository<Mai2UserPrintDetail, Long>
@@ -125,6 +124,10 @@ interface Mai2GameEventRepo : JpaRepository<Mai2GameEvent, Int> {
 }
 
 interface Mai2GameSellingCardRepo : JpaRepository<Mai2GameSellingCard, Long>
+
+interface Mai2UserRegionsRepo: Mai2UserLinked<UserRegions> {
+    fun findByUserAndRegionId(user: Mai2UserDetail, regionId: Int): UserRegions?
+}
 
 @Component
 class Mai2Repos(
@@ -151,5 +154,6 @@ class Mai2Repos(
     val userIntimate: MAi2UserIntimateRepo,
     val gameCharge: Mai2GameChargeRepo,
     val gameEvent: Mai2GameEventRepo,
-    val gameSellingCard: Mai2GameSellingCardRepo
+    val gameSellingCard: Mai2GameSellingCardRepo,
+    val userRegions: Mai2UserRegionsRepo,
 )

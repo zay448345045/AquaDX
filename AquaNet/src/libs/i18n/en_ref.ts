@@ -28,27 +28,38 @@ export const EN_REF_USER = {
   'UserHome.RemoveRival': "Remove from Rival",
   'UserHome.InvalidGame': "Game ${game} is not supported on the web UI yet. We only support maimai, chunithm, wacca, and ongeki for now.",
   'UserHome.ShowMoreRecent': 'Show more',
+  'UserHome.FavoriteSongs': 'Favorite Songs'
 }
 
 export const EN_REF_Welcome = {
   'back': 'Back',
   'email': 'Email',
   'password': 'Password',
+  'new-password': 'New password',
   'username': 'Username',
   'welcome.btn-login': 'Log in',
   'welcome.btn-signup': 'Sign up',
-  'welcome.email-password-missing': 'Email and password are required',
+  'welcome.btn-reset-password': 'Forgot password?',
+  'welcome.btn-submit-reset-password': 'Send reset link',
+  'welcome.btn-submit-new-password': 'Change password',
+  'welcome.email-missing': 'Email is required',
+  'welcome.password-missing': 'Password is required',
   'welcome.username-missing': 'Username/email is required',
+  'welcome.email-password-missing': 'Email and password are required',
   'welcome.waiting-turnstile': 'Waiting for Turnstile to verify your network environment...',
   'welcome.turnstile-error': 'Error verifying your network environment. Please turn off your VPN and try again.',
   'welcome.turnstile-timeout': 'Network verification timed out. Please try again.',
   'welcome.verification-sent': 'A verification email has been sent to ${email}. Please check your inbox!',
-  'welcome.verify-state-0': 'You haven\'t verified your email. A verification email had been sent to your inbox less than a minute ago. Please check your inbox!',
-  'welcome.verify-state-1': 'You haven\'t verified your email. We\'ve already sent 3 emails over the last 24 hours so we\'ll not send another one. Please check your inbox!',
+  'welcome.reset-password-sent': 'A password reset email has been sent to ${email}. Please check your inbox!',
+  'welcome.verify-state-0': 'You haven\'t verified your email. A verification email has been sent to your inbox just now. Please check your inbox!',
+  'welcome.verify-state-1': 'You haven\'t verified your email. You have requested too many emails, please try again later.',
   'welcome.verify-state-2': 'You haven\'t verified your email. We just sent you another verification email. Please check your inbox!',
+  'welcome.reset-state-0': 'A reset email has been sent to your inbox just now. Please check your inbox!',
+  'welcome.reset-state-1': 'Too many emails have been sent. Another will not be sent.',
   'welcome.verifying': 'Verifying your email... please wait.',
   'welcome.verified': 'Your email has been verified! You can now log in now.',
   'welcome.verification-failed': 'Verification failed: ${message}. Please try again.',
+  'welcome.password-reset-done': 'Your password has been updated! Please log back in.',
 }
 
 export const EN_REF_LEADERBOARD = {
@@ -183,8 +194,13 @@ export const EN_REF_SETTINGS = {
   'settings.profile.logout': 'Log out',
   'settings.profile.unchanged': 'Unchanged',
   'settings.export': 'Export Player Data',
+  'settings.batchManualExport': "Export in Batch Manual (for Tachi)",
   'settings.cabNotice': "Note: These settings will only affect your own cab/setup. If you're playing on someone else's setup, please contact them to change these settings.",
-  'settings.gameNotice': "These only apply to Mai and Wacca."
+  'settings.gameNotice': "These only apply to Mai and Wacca.",
+  'settings.regionNotice': "These only apply to Mai, Ongeki and Chuni.",
+  'settings.regionSelector.title': "Prefecture Selector",
+  'settings.regionSelector.desc': "Select the region where you want the game to think you are playing",
+  'settings.regionSelector.select': "Select Prefecture",
 }
 
 export const EN_REF_USERBOX = {

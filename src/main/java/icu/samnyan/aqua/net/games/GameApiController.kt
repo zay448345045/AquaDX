@@ -5,7 +5,6 @@ import icu.samnyan.aqua.net.BotProps
 import icu.samnyan.aqua.net.db.AquaUserServices
 import icu.samnyan.aqua.net.utils.SUCCESS
 import icu.samnyan.aqua.sega.general.model.Card
-import icu.samnyan.aqua.sega.general.model.CardStatus
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -56,7 +55,7 @@ abstract class GameApiController<T : IUserData>(val name: String, userDataClass:
 
         val reqUser = token?.let { us.jwt.auth(it) }?.let { u ->
             // Optimization: If the user is not banned, we don't need to process user information
-            if (!u.ghostCard.rankingBanned && !u.cards.any { it.rankingBanned } && u.ghostCard.status == CardStatus.NORMAL) null
+            if (!u.ghostCard.rankingBanned && !u.cards.any { it.rankingBanned } && u.ghostCard.status.isNormal) null
             else u
         }
 
@@ -92,7 +91,7 @@ abstract class GameApiController<T : IUserData>(val name: String, userDataClass:
                     AVG(p.achievement) / 10000.0 AS acc,
                     SUM(p.is_full_combo) AS fc,
                     SUM(p.is_all_perfect) AS ap,
-                    c.ranking_banned or a.opt_out_of_leaderboard AS hide,
+                    c.ranking_banned or a.opt_out_of_leaderboard or c.status = 12 AS hide,
                     a.username
                 FROM ${tableName}_user_playlog_view p
                      JOIN ${tableName}_user_data_view u ON p.user_id = u.id
@@ -148,7 +147,7 @@ abstract class GameApiController<T : IUserData>(val name: String, userDataClass:
         userMusicRepo.findByUser_Card_ExtIdAndMusicIdIn(card.extId, musicList)
     }
 
-    fun genericUserSummary(card: Card, ratingComp: Map<String, String>, rival: Boolean? = null): GenericGameSummary {
+    fun genericUserSummary(card: Card, ratingComp: Map<String, String>, rival: Boolean? = null, favorites: List<Int>? = null): GenericGameSummary {
         // Summary values: total plays, player rating, server-wide ranking
         // number of each rank, max combo, number of full combo, number of all perfect
         val user = userDataRepo.findByCard(card) ?: (404 - "Game data not found")
@@ -199,7 +198,8 @@ abstract class GameApiController<T : IUserData>(val name: String, userDataClass:
             ratingComposition = ratingComp,
             recent = plays.sortedBy { it.userPlayDate.toString() }.takeLast(100).reversed(),
             lastPlayedHost = user.lastClientId?.let { us.userRepo.findByKeychip(it)?.username },
-            rival = rival
+            rival = rival,
+            favorites = favorites
         )
     }
 

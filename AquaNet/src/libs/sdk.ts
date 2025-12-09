@@ -163,12 +163,22 @@ async function login(user: { email: string, password: string, turnstile: string 
   localStorage.setItem('token', data.token)
 }
 
+async function resetPassword(user: { email: string, turnstile: string }) {
+  return await post('/api/v2/user/reset-password', user)
+}
+
+async function changePassword(user: { token: string, password: string }) {
+  return await post('/api/v2/user/change-password', user)
+}
+
 const isLoggedIn = () => !!localStorage.getItem('token')
 const ensureLoggedIn = () => !isLoggedIn() && (window.location.href = '/')
 
 export const USER = {
   register,
   login,
+  resetPassword,
+  changePassword,
   confirmEmail: (token: string) =>
     post('/api/v2/user/confirm-email', { token }),
   me: (): Promise<AquaNetUser> => {
@@ -186,6 +196,8 @@ export const USER = {
   },
   isLoggedIn,
   ensureLoggedIn,
+  changeRegion: (regionId: number) =>
+    post('/api/v2/user/change-region', { regionId }),
 }
 
 export const USERBOX = {
@@ -254,5 +266,14 @@ export const TRANSFER = {
     post('/api/v2/transfer/push', {}, { json: { client: d, data } }),
 }
 
+export const FEDY = {
+  status: (): Promise<{ linkedAt: number }> =>
+    post('/api/v2/fedy/status'),
+  link: (nonce: string): Promise<{ linkedAt: number }> =>
+    post('/api/v2/fedy/link', { nonce }),
+  unlink: () =>
+    post('/api/v2/fedy/unlink'),
+}
+
 // @ts-ignore
-window.sdk = { USER, USERBOX, CARD, GAME, DATA, SETTING, TRANSFER }
+window.sdk = { USER, USERBOX, CARD, GAME, DATA, SETTING, TRANSFER, FEDY }

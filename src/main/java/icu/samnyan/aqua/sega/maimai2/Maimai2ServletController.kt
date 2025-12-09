@@ -14,6 +14,10 @@ import jakarta.servlet.http.HttpServletRequest
 import org.springframework.web.bind.annotation.*
 import java.time.format.DateTimeFormatter
 import kotlin.reflect.full.declaredMemberProperties
+import icu.samnyan.aqua.net.Fedy
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.context.annotation.Lazy
+import org.springframework.beans.factory.ObjectProvider
 
 /**
  * @author samnyan (privateamusement@protonmail.com)
@@ -37,6 +41,8 @@ class Maimai2ServletController(
     val net: Maimai2,
 ): MeowApi(serialize = { _, resp -> if (resp is String) resp else resp.toJson() }) {
 
+    @Autowired @Lazy lateinit var fedy: Fedy
+
     companion object {
         private val log = logger()
         private val empty = listOf<Any>()
@@ -49,7 +55,7 @@ class Maimai2ServletController(
     val endpointList = setOf("GetGameRankingApi","GetUserCharacterApi","GetUserItemApi","GetUserPortraitApi",
         "GetUserRatingApi","UploadUserPhotoApi","UploadUserPlaylogApi","UploadUserPortraitApi","UpsertUserAllApi",
         "CMGetUserCardApi","CMGetUserCardPrintErrorApi","CMGetUserDataApi","CMGetUserItemApi","CMUpsertUserPrintApi",
-        "GetUserFavoriteItemApi","GetServerAnnouncementApi")
+        "GetUserFavoriteItemApi")
 
     val noopEndpoint = setOf("GetUserScoreRankingApi", "UpsertClientBookkeepingApi",
         "UpsertClientSettingApi", "UpsertClientTestmodeApi", "UpsertClientUploadApi", "Ping", "RemoveTokenApi",
@@ -89,6 +95,7 @@ class Maimai2ServletController(
                 val ctx = RequestContext(req, data.mut)
                 serialize(api, handlers[api]!!(ctx) ?: noop).also {
                     log.info("$token : $api > ${it.truncate(500)}")
+                    if (api == "UpsertUserAllApi") { data["userId"]?.long?.let { fedy.onDataUpdated(it, "mai2", false) } }
                 }
             }
         } catch (e: Exception) {
