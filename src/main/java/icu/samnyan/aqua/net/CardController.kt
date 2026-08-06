@@ -8,6 +8,7 @@ import icu.samnyan.aqua.net.games.IUserData
 import icu.samnyan.aqua.net.utils.AquaNetProps
 import icu.samnyan.aqua.net.utils.SUCCESS
 import icu.samnyan.aqua.sega.chusan.model.Chu3UserDataRepo
+import icu.samnyan.aqua.sega.diva.PlayerProfileRepository
 import icu.samnyan.aqua.sega.general.dao.CardRepository
 import icu.samnyan.aqua.sega.general.model.Card
 import icu.samnyan.aqua.sega.general.service.CardService
@@ -19,7 +20,6 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.web.bind.annotation.RestController
 import java.time.LocalDateTime
-import kotlin.jvm.optionals.getOrNull
 import kotlin.random.Random
 
 @RestController
@@ -68,7 +68,7 @@ class CardController(
      */
     @API("/link")
     @Doc("Bind a card to the user. This action will migrate selected data from the card to the user's ghost card.", "Success message")
-    suspend fun link(@RP token: Str, @RP cardId: Str, @RP migrate: Str) = jwt.auth(token) { u ->
+    suspend fun link(@RP token: Str, @RP cardId: Str, @RP migrate: Str): Any = jwt.auth(token) { u ->
         // Check if the user's card limit is reached
         if (u.cards.size >= props.linkCardLimit) 400 - "Card limit reached"
 
@@ -101,8 +101,7 @@ class CardController(
         val games = migrate.split(',')
         cardGameService.migrate(card, games)
 
-        fedy.onCardLinked(card.luid, oldExtId = card.extId, ghostExtId = u.ghostCard.extId,
-                          games.map { Fedy.getGameName(it) }.filterNotNull())
+        fedy.onCardLinked(card.luid, oldExtId = card.extId, ghostExtId = u.ghostCard.extId, games)
 
         log.info("Net /card/link : Linked card ${card.id} to user ${u.username} and migrated data to ${games.joinToString()}")
 
@@ -204,10 +203,11 @@ class CardGameService(
     val chusan: Chu3UserDataRepo,
     val wacca: WcUserRepo,
     val ongeki: OgkUserDataRepo,
-    val diva: icu.samnyan.aqua.sega.diva.dao.userdata.PlayerProfileRepository,
+    val diva: PlayerProfileRepository,
     val safety: AquaNetSafetyService,
     val cardRepo: CardRepository,
-    val em: EntityManager
+    val em: EntityManager,
+    val cardService: CardService
 ) {
     companion object {
         val log = logger()
@@ -225,7 +225,9 @@ class CardGameService(
         val remainingGames = dataRepos.keys.toMutableSet()
         games.forEach { game ->
             val dataRepo = dataRepos[game] ?: return@forEach
-            migrateCard(game, dataRepo, cardRepo, crd)
+            if (migrateCard(game, dataRepo, cardRepo, crd))
+                // Update timestamp for the ghost card (data migrated in)
+                cardService.updateCardTimestamp(crd.aquaUser!!.ghostCard, game, resetCreatedAt = true)
             remainingGames.remove(game)
         }
         // For remaining games, orphan the data by assigning them to a dummy card
@@ -238,7 +240,7 @@ class CardGameService(
             "chu3" to getSummaryFor(chusan, card),
             "ongeki" to getSummaryFor(ongeki, card),
             "wacca" to getSummaryFor(wacca, card),
-            "diva" to diva.findByPdId(card.extId).getOrNull()?.let {
+            "diva" to diva.findByPdId(card.extId)()?.let {
                 mapOf(
                     "name" to it.playerName,
                     "rating" to it.level,

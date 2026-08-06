@@ -1,6 +1,7 @@
 package icu.samnyan.aqua.sega.aimedb
 
-import ext.*
+import ext.logger
+import ext.toHex
 import icu.samnyan.aqua.net.Fedy
 import icu.samnyan.aqua.net.db.AquaUserServices
 import icu.samnyan.aqua.sega.allnet.AllNetProps
@@ -45,7 +46,7 @@ class AimeDB(
         keychipId = readPaddedString(12u)       // 14 12b
     )
 
-    fun ByteBuf.readPaddedString(maxLen: UInt) = readBytes(maxLen.toInt()).toString(US_ASCII).trimEnd('\u0000')
+    fun ByteBuf.readPaddedString(maxLen: UInt) = readCharSequence(maxLen.toInt(), US_ASCII).toString().trimEnd('\u0000')
 
     data class Handler(val name: String, val fn: (ByteBuf) -> ByteBuf?)
 
@@ -95,7 +96,6 @@ class AimeDB(
         }
     }
 
-    @Deprecated("Deprecated in Netty 5") // TODO: Move this to ChannelInboundHandler
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
         logger.error("AimeDB: Error", cause)
         ctx.close()
@@ -125,7 +125,7 @@ class AimeDB(
         }
     }
 
-    fun getCard(accessCode: String) = us.cardRepo.findByLuid(accessCode)()?.maybeGhost()?.let { card ->
+    fun getCard(accessCode: String) = us.cardRepo.findByLuid(accessCode)?.maybeGhost()?.let { card ->
         // Update card access time and return the extId
         us.cardRepo.save(card.apply { accessTime = LocalDateTime.now() }).extId
     } ?: -1
@@ -196,7 +196,7 @@ class AimeDB(
         var status = 0
         var aimeId = 0L
 
-        if (us.cardRepo.findByLuid(luid).isEmpty) {
+        if (us.cardRepo.findByLuid(luid) == null) {
             val card: Card = cardService.registerByAccessCode(luid)
 
             status = 1

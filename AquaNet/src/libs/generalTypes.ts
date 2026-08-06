@@ -31,6 +31,9 @@ export interface AquaNetUser {
   computedName: string,
   password: string,
   optOutOfLeaderboard: boolean,
+  canModifyKeychips: boolean,
+  hideCountry: boolean,
+  displayCandidates: boolean
 }
 
 export interface CardSummaryGame {
@@ -90,10 +93,11 @@ export interface GenericGameSummary {
   name: string
   iconId: number
   aquaUser?: AquaNetUser
-  serverRank: number
+  serverRank: string
   accuracy: number
   rating: number
-  ratingHighest: number
+  ratingHighest: number,
+  ratingNotGeneric: boolean,
   ranks: RankCount[]
   detailedRanks: { [key: number]: { [key: string]: number } }
   maxCombo: number
@@ -136,6 +140,8 @@ export interface GameOption {
 
   changed?: boolean
 }
+
+export type GameUserOption = Record<string, number>
 
 export interface UserItem { itemKind: number, itemId: number, stock: number }
 export interface UserBox {

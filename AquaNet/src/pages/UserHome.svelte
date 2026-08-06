@@ -29,15 +29,12 @@
 
   registerChart()
 
-  export let username: string;
-  export let game: GameName | "auto" = "auto"
+  export let username: string = "";
+  export let game: GameName = "" as GameName;
   let calElement: HTMLElement
   let error: string;
   let me: AquaNetUser
-  title(`User ${username}`)
   const rounding = useLocalStorage("rounding", true);
-
-  const titleText = game != "auto" ? GAME_TITLE[game] : "?"
 
   interface MusicAndPlay extends MusicMeta, GenericGamePlaylog {}
 
@@ -53,11 +50,12 @@
   let isLoading = false
   let showMoreRecent = false
 
+
   function init() {
     USER.isLoggedIn() && USER.me().then(u => me = u)
 
     CARD.userGames(username).then(games => {
-      if (game == "auto") {
+      if (!game) {
         let targetGames = Object.entries(games)
         .map(d => {
           if (d[1])
@@ -66,9 +64,7 @@
         }).sort((a,b) => {
           return b[1]?.lastLogin - a[1]?.lastLogin;
         });
-        if (targetGames[0])
-          window.location.href = `/u/${username}/${targetGames[0][0]}`
-        return;
+        game = targetGames[0][0] as GameName;
       }
       if (!games[game]) {
         // Find a valid game
@@ -81,10 +77,12 @@
         GAME.userSummary(username, game),
         GAME.trend(username, game),
         DATA.allMusic(game),
-      ]).then(([user, trend, music]) => {
+      ]).then(async ([user, trend, music]) => {
         console.log(user)
         console.log(trend)
         console.log(games)
+
+        title(` ${user.name} (@${username}) ・ ${GAME_TITLE[game]}`)
 
         // If game is wacca, divide all ratings by 10
         if (game === 'wacca') {
@@ -118,11 +116,10 @@
     }).catch((e) => { error = e.message; console.error(e) } );
   }
 
-  if (Object.keys(GAME_TITLE).includes(game) || game == "auto") init()
+  if (Object.keys(GAME_TITLE).includes(game) || !game) init()
   else error = t("UserHome.InvalidGame", {game})
 
   const setRival = (isAdd: boolean) => {
-    if (game == "auto") return;
     isLoading = true
     GAME.setRival(game, username, isAdd).then(() => {
       d!.user.rival = isAdd
@@ -166,8 +163,8 @@
           <a href={`/u/${username}/${g}`} class:active={game === g}>{name}</a>
         {/each}
 
-        {#if me && me.username === username}
-          <a class="setting-icon clickable" use:tooltip={t("UserHome.Settings")} href="/settings">
+        {#if me && me.username.toLowerCase() === username.toLowerCase()}
+          <a class="setting-icon clickable" use:tooltip={t("UserHome.Settings")} href={`/settings/${game}`}>
             <Icon icon="eos-icons:rotating-gear"/>
           </a>
         {/if}
@@ -188,23 +185,35 @@
     <ChuniUserboxDisplay {game} {username} bind:error={error} />
 
     <div>
-      <h2>{titleText} {t('UserHome.Statistics')}</h2>
+      <h2>{GAME_TITLE[game] ?? "?"} {t('UserHome.Statistics')}</h2>
       <div class="scoring-info">
         <div class="chart">
           <div class="info-top">
-            <div class="rating">
-              <span>{game === 'mai2' ? t("UserHome.DXRating"): t("UserHome.Rating")}</span>
-              <span>{
-                game === 'chu3' || game === 'ongeki' ?
-                  (d.user.rating / 100).toFixed(2) :
-                  d.user.rating.toLocaleString()
-              }</span>
-            </div>
 
-            <div class="rank">
-              <span>{t('UserHome.ServerRank')}</span>
-              <span>#{(d.user.serverRank + 1).toLocaleString()}</span>
-            </div>
+
+            {#if game == "ongeki" && d.user.ratingNotGeneric}
+              <div class="rating">
+                <span>{t("UserHome.Rating")}</span>
+                <span>{(d.user.rating / 1000).toFixed(3)}</span>
+              </div>
+            {:else}
+              <div class="rating">
+                <span>{game === 'mai2' ? t("UserHome.DXRating"): t("UserHome.Rating")}</span>
+                <!-- NOTE: this is for legacy ongeki display, so 1.45 profiles are at least usable -->
+                <span>{
+                  game === 'chu3' || game === 'ongeki' ?
+                    (d.user.rating / 100).toFixed(2) :
+                    d.user.rating.toLocaleString()
+                }</span>
+              </div>
+            {/if}
+
+            {#if !isNaN(parseInt(d.user.serverRank))}
+              <div class="rank">
+                <span>{t('UserHome.ServerRank')}</span>
+                <span>#{(d.user.serverRank).toLocaleString()}</span>
+              </div>
+            {/if}
           </div>
 
           <div class="trend">
@@ -251,6 +260,23 @@
             <span>{t('UserHome.Accuracy')}</span>
             <span>{(d.user.accuracy).toFixed(2)}%</span>
           </div>
+
+          {#if game == "ongeki" && d.user.ratingNotGeneric}
+            <div class="rating">
+              <span>{t("UserHome.HighestRating")}</span>
+              <span>{(d.user.ratingHighest / 1000).toFixed(3)}</span>
+            </div>
+          {:else}
+            <div class="rating">
+              <span>{game === 'mai2' ? t("UserHome.HighestDXRating"): t("UserHome.HighestRating")}</span>
+              <!-- NOTE: this is for legacy ongeki display, so 1.45 profiles are at least usable -->
+              <span>{
+                game === 'chu3' || game === 'ongeki' ?
+                  (d.user.ratingHighest / 100).toFixed(2) :
+                  d.user.ratingHighest.toLocaleString()
+              }</span>
+            </div>
+          {/if}
 
           <div class="max-combo">
             <span>{t("UserHome.MaxCombo")}</span>
@@ -311,18 +337,25 @@
       </div>
     </div>
 
-    <!-- I don't like doing this but it may be preferable to gaslighting the types -->
+    <RatingComposition title={t("UserHome.RatingComposition.Best", {n: 50})} comp={d.user.ratingComposition.best50} {allMusics} {game}/>
+    <RatingComposition title={t("UserHome.RatingComposition.Best", {n: 35})} comp={d.user.ratingComposition.best35} {allMusics} {game}/>
+    <RatingComposition title={t("UserHome.RatingComposition.Best", {n: 30})} comp={d.user.ratingComposition.best30} {allMusics} {game}/>
+    <RatingComposition title={t("UserHome.RatingComposition.Best", {n: 15})} comp={d.user.ratingComposition.best15} {allMusics} {game}/>
+    <RatingComposition title={t("UserHome.RatingComposition.New", {n : 15})} comp={d.user.ratingComposition.new15} {allMusics} {game}/>
+    <RatingComposition title={t("UserHome.RatingComposition.New", {n: 10})} comp={d.user.ratingComposition.new10} {allMusics} {game}/>
+    <RatingComposition title={t("UserHome.RatingComposition.Platinum", {n: 50})} comp={d.user.ratingComposition.pscore50} {allMusics} {game}/>
 
-    <RatingComposition title="B30" comp={d.user.ratingComposition.best30} {allMusics} game={game != "auto" ? game : "mai2"}/>
-    <RatingComposition title="B35" comp={d.user.ratingComposition.best35} {allMusics} game={game != "auto" ? game : "mai2"}/>
-    <RatingComposition title="B15" comp={d.user.ratingComposition.best15} {allMusics} game={game != "auto" ? game : "mai2"}/>
-    <!-- <RatingComposition title="Hot 10" comp={d.user.ratingComposition.hot10} {allMusics} {game}/> -->
-    <!-- <RatingComposition title="N10" comp={d.user.ratingComposition.next10} {allMusics} {game}/> -->
+    {#if me && me.displayCandidates && d.user.aquaUser && me.username == d.user.aquaUser.username}
+      <RatingComposition title={t("UserHome.RatingComposition.BestCandidates", {n: 20})} comp={d.user.ratingComposition.best20_candidates} {allMusics} {game}/>
+      <RatingComposition title={t("UserHome.RatingComposition.NewCandidates", {n: 10})} comp={d.user.ratingComposition.new10_candidates} {allMusics} {game}/>
+      <RatingComposition title={t("UserHome.RatingComposition.PlatinumCandidates", {n: 20})} comp={d.user.ratingComposition.pscore20_candidates} {allMusics} {game}/>
+    {/if}
+
      <!-- Chuni -->
     {#if d.user.ratingComposition.new}
-      <RatingComposition title="New 20" comp={d.user.ratingComposition.new} {allMusics} game="chu3"/>
+      <RatingComposition title={t("UserHome.RatingComposition.New", {n: 20})} comp={d.user.ratingComposition.new} {allMusics} game="chu3"/>
     {:else}
-      <RatingComposition title="Recent 10" comp={d.user.ratingComposition.recent10} {allMusics} game={game != "auto" ? game : "mai2"} top={10}/>
+      <RatingComposition title={t("UserHome.RatingComposition.Recent", {n: 10})} comp={d.user.ratingComposition.recent10} {allMusics} {game} top={10}/>
     {/if}
 
     <div class="recent">
@@ -344,12 +377,12 @@
                     {r.notes?.[r.level === 10 ? 0 : r.level]?.lv?.toFixed(1) ?? r.worldsEndTag ?? '-'}
                   </span>
                 </span>
-                <span class={`rank-${getMult(r.achievement, game != "auto" ? game : "mai2")[2].toString()[0]}`}>
-                  <span class="rank-text">{("" + getMult(r.achievement, game != "auto" ? game : "mai2")[2]).replace("p", "+")}</span>
+                <span class={`rank-${getMult(r.achievement, game)[2].toString()[0]}`}>
+                  <span class="rank-text">{("" + getMult(r.achievement, game)[2]).replace("p", "+")}</span>
                   <span class="rank-num" use:tooltip={(r.achievement / 10000).toFixed(4)}>
                     {
                       rounding.value ?
-                        roundFloor(r.achievement, game != "auto" ? game : "mai2", 1) :
+                        roundFloor(r.achievement, game, 1) :
                         (r.achievement / 10000).toFixed(4)
                     }%
                   </span>
@@ -499,7 +532,7 @@
   .scoring-info
     display: flex
     gap: vars.$gap
-    max-height: 250px
+    max-height: 300px
 
     .chart
       flex: 0 1 790px
@@ -580,7 +613,7 @@
         display: flex
         align-items: center
         gap: 20px
-        
+
         background-color: rgba(white, 0.03)
         border-radius: vars.$border-radius
 
@@ -598,10 +631,6 @@
           overflow: hidden
           flex-direction: column
 
-          .first-line
-            display: flex
-            flex-direction: row
-
           // Limit song name to one line
           .song-title
             max-width: 90%
@@ -616,9 +645,6 @@
           @media (max-width: vars.$w-mobile)
             flex-direction: column
             gap: 0
-
-            .rank-text
-              text-align: left
 
   // Recent Scores section
   .recent

@@ -6,21 +6,21 @@ import icu.samnyan.aqua.net.games.GenericUserDataRepo
 import icu.samnyan.aqua.net.games.GenericUserMusicRepo
 import icu.samnyan.aqua.net.games.IUserRepo
 import icu.samnyan.aqua.sega.ongeki.model.*
-import icu.samnyan.aqua.sega.ongeki.model.UserEventMap
-import icu.samnyan.aqua.sega.ongeki.model.UserSkin
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.NoRepositoryBean
 import org.springframework.stereotype.Component
+import icu.samnyan.aqua.sega.util.GameDataService
+import icu.samnyan.aqua.sega.util.StaticRepo
 import java.util.*
 
 
 @NoRepositoryBean
-interface OngekiUserLinked<T> : IUserRepo<UserData, T> {
+interface OngekiUserLinked<T : Any> : IUserRepo<UserData, T> {
     fun findByUser_Card_ExtId(extId: Long): List<T>
-    fun findSingleByUser_Card_ExtId(extId: Long): Optional<T>
+    fun findSingleByUser_Card_ExtId(extId: Long): T?
     fun findByUser_Card_ExtId(extId: Long, pageable: Pageable): Page<T>
 }
 
@@ -29,28 +29,28 @@ interface OgkUserDataRepo : GenericUserDataRepo<UserData> {
 }
 
 interface OgkUserActivityRepo : OngekiUserLinked<UserActivity> {
-    fun findByUserAndKindAndActivityId(userData: UserData, kind: Int, activityId: Int): Optional<UserActivity>
+    fun findByUserAndKindAndActivityId(userData: UserData, kind: Int, activityId: Int): UserActivity?
     fun findByUser_Card_ExtIdAndKindOrderBySortNumberDesc(userId: Long, kind: Int): List<UserActivity>
 }
 
 interface OgkUserBossRepo : OngekiUserLinked<UserBoss> {
-    fun findByUserAndMusicId(user: UserData, musicId: Int): Optional<UserBoss>
+    fun findByUserAndMusicId(user: UserData, musicId: Int): UserBoss?
 }
 
 interface OgkUserCardRepo : OngekiUserLinked<UserCard> {
-    fun findByUserAndCardId(userData: UserData, cardId: Int): Optional<UserCard>
+    fun findByUserAndCardId(userData: UserData, cardId: Int): UserCard?
 }
 
 interface OgkUserChapterRepo : OngekiUserLinked<UserChapter> {
-    fun findByUserAndChapterId(userData: UserData, chapterId: Int): Optional<UserChapter>
+    fun findByUserAndChapterId(userData: UserData, chapterId: Int): UserChapter?
 }
 
 interface OgkUserCharacterRepo : OngekiUserLinked<UserCharacter> {
-    fun findByUserAndCharacterId(userData: UserData, characterId: Int): Optional<UserCharacter>
+    fun findByUserAndCharacterId(userData: UserData, characterId: Int): UserCharacter?
 }
 
 interface OgkUserDeckRepo : OngekiUserLinked<UserDeck> {
-    fun findByUserAndDeckId(userData: UserData, deckId: Int): Optional<UserDeck>
+    fun findByUserAndDeckId(userData: UserData, deckId: Int): UserDeck?
 }
 
 interface OgkUserEventMusicRepo : OngekiUserLinked<UserEventMusic> {
@@ -59,11 +59,11 @@ interface OgkUserEventMusicRepo : OngekiUserLinked<UserEventMusic> {
         eventId: Int,
         type: Int,
         musicId: Int
-    ): Optional<UserEventMusic>
+    ): UserEventMusic?
 }
 
 interface OgkUserEventPointRepo : OngekiUserLinked<UserEventPoint> {
-    fun findByUserAndEventId(userData: UserData, eventId: Int): Optional<UserEventPoint>
+    fun findByUserAndEventId(userData: UserData, eventId: Int): UserEventPoint?
 
     //@Query(value = "SELECT rank from (SELECT user_id , DENSE_RANK() OVER (ORDER BY point DESC) as rank from ongeki_user_event_point where event_id = :eventId) where user_id == :userId limit 1", nativeQuery = true)
     @Query("SELECT COUNT(u)+1 FROM OngekiUserEventPoint u WHERE u.eventId = :eventId AND u.point > (SELECT u2.point FROM OngekiUserEventPoint u2 WHERE u2.user.id = :userId AND u2.eventId = :eventId)")
@@ -71,62 +71,62 @@ interface OgkUserEventPointRepo : OngekiUserLinked<UserEventPoint> {
 }
 
 interface OgkUserGeneralDataRepo : OngekiUserLinked<UserGeneralData> {
-    fun findByUserAndPropertyKey(user: UserData, key: String): Optional<UserGeneralData>
+    fun findByUserAndPropertyKey(user: UserData, key: String): UserGeneralData?
 
-    fun findByUser_Card_ExtIdAndPropertyKey(userId: Long, key: String): Optional<UserGeneralData>
+    fun findByUser_Card_ExtIdAndPropertyKey(userId: Long, key: String): UserGeneralData?
 }
 
 interface OgkUserItemRepo : OngekiUserLinked<UserItem> {
-    fun findByUserAndItemKindAndItemId(userData: UserData, itemKind: Int, itemId: Int): Optional<UserItem>
+    fun findByUserAndItemKindAndItemId(userData: UserData, itemKind: Int, itemId: Int): UserItem?
 
     fun findByUser_Card_ExtIdAndItemKind(userId: Long, kind: Int, page: Pageable): Page<UserItem>
     fun findByUser_Card_ExtIdAndItemKind(userId: Long, kind: Int): List<UserItem>
 }
 
 interface OgkUserKopRepo : OngekiUserLinked<UserKop> {
-    fun findByUserAndKopIdAndAreaId(userData: UserData, kopId: Int, areaId: Int): Optional<UserKop>
+    fun findByUserAndKopIdAndAreaId(userData: UserData, kopId: Int, areaId: Int): UserKop?
 }
 
 interface OgkUserLoginBonusRepo : OngekiUserLinked<UserLoginBonus> {
-    fun findByUserAndBonusId(userData: UserData, bonusId: Int): Optional<UserLoginBonus>
+    fun findByUserAndBonusId(userData: UserData, bonusId: Int): UserLoginBonus?
 }
 
 interface OgkUserMemoryChapterRepo : OngekiUserLinked<UserMemoryChapter> {
-    fun findByUserAndChapterId(userData: UserData, chapterId: Int): Optional<UserMemoryChapter>
+    fun findByUserAndChapterId(userData: UserData, chapterId: Int): UserMemoryChapter?
 }
 
 interface OgkUserMissionPointRepo : OngekiUserLinked<UserMissionPoint> {
-    fun findByUserAndEventId(userData: UserData, eventId: Int): Optional<UserMissionPoint>
+    fun findByUserAndEventId(userData: UserData, eventId: Int): UserMissionPoint?
 }
 
 interface OgkUserMusicDetailRepo : OngekiUserLinked<UserMusicDetail>, GenericUserMusicRepo<UserMusicDetail> {
-    fun findByUserAndMusicIdAndLevel(userData: UserData, musicId: Int, level: Int): Optional<UserMusicDetail>
+    fun findByUserAndMusicIdAndLevel(userData: UserData, musicId: Int, level: Int): UserMusicDetail?
 }
 
 interface OgkUserMusicItemRepo : OngekiUserLinked<UserMusicItem> {
-    fun findByUserAndMusicId(userData: UserData, musicId: Int): Optional<UserMusicItem>
+    fun findByUserAndMusicId(userData: UserData, musicId: Int): UserMusicItem?
 }
 
 interface OgkUserOptionRepo : OngekiUserLinked<UserOption>
 
 interface OgkUserPlaylogRepo : OngekiUserLinked<UserPlaylog>, GenericPlaylogRepo<UserPlaylog>
 
-interface OgkUserRivalDataRepo : OngekiUserLinked<UserRival>
+interface OgkUserRivalRepo : OngekiUserLinked<UserRival>
 
 interface OgkUserScenarioRepo : OngekiUserLinked<UserScenario> {
-    fun findByUserAndScenarioId(user: UserData, scenarioId: Int): Optional<UserScenario>
+    fun findByUserAndScenarioId(user: UserData, scenarioId: Int): UserScenario?
 }
 
 interface OgkUserStoryRepo : OngekiUserLinked<UserStory> {
-    fun findByUserAndStoryId(userData: UserData, storyId: Int): Optional<UserStory>
+    fun findByUserAndStoryId(userData: UserData, storyId: Int): UserStory?
 }
 
 interface OgkUserTechCountRepo : OngekiUserLinked<UserTechCount> {
-    fun findByUserAndLevelId(user: UserData, levelId: Int): Optional<UserTechCount>
+    fun findByUserAndLevelId(user: UserData, levelId: Int): UserTechCount?
 }
 
 interface OgkUserTechEventRepo : OngekiUserLinked<UserTechEvent> {
-    fun findByUserAndEventId(userData: UserData, eventId: Int): Optional<UserTechEvent>
+    fun findByUserAndEventId(userData: UserData, eventId: Int): UserTechEvent?
 }
 
 interface OgkUserTradeItemRepo : OngekiUserLinked<UserTradeItem> {
@@ -140,25 +140,22 @@ interface OgkUserTradeItemRepo : OngekiUserLinked<UserTradeItem> {
         userData: UserData,
         chapterId: Int,
         tradeItemId: Int
-    ): Optional<UserTradeItem>
+    ): UserTradeItem?
 }
 
 interface OgkUserTrainingRoomRepo : OngekiUserLinked<UserTrainingRoom> {
-    fun findByUserAndRoomId(user: UserData, roomId: Int): Optional<UserTrainingRoom>
+    fun findByUserAndRoomId(user: UserData, roomId: Int): UserTrainingRoom?
 }
 
 interface OgkUserRegionsRepo: OngekiUserLinked<UserRegions> {
     fun findByUserAndRegionId(user: UserData, regionId: Int): UserRegions?
 }
 
-interface OgkGameGachaCardRepo : JpaRepository<GameGachaCard, Long> {
-    fun findAllByGachaId(gachaId: Long): List<GameGachaCard>
-
-    @Query("SELECT g FROM OngekiGameGachaCard g WHERE g.gachaId = :gachaId OR g.gachaId = 1112")
-    fun findAllByGachaIdAndPermanent(gachaId: Long): List<GameGachaCard>
+class OngekiGameGachaCardRepo(data: List<GameGachaCard>) : StaticRepo<GameGachaCard, Long>(data, { it.cardId }) {
+    private val gachaMap by lazy { data.groupBy { it.gachaId } }
+    fun findAllByGachaId(gachaId: Long) = gachaMap[gachaId] ?: emptyList()
+    fun findAllByGachaIdAndPermanent(gachaId: Long) = (gachaMap[gachaId] ?: emptyList()) + (gachaMap[1112L] ?: emptyList())
 }
-
-interface OgkGameGachaRepo : JpaRepository<GameGacha, Long>
 
 interface OgkUserGachaRepo : OngekiUserLinked<UserGacha> {
     fun findByUserAndGachaId(user: UserData, gachaId: Long): UserGacha?
@@ -168,14 +165,6 @@ interface OgkUserGachaRepo : OngekiUserLinked<UserGacha> {
 interface OgkUserEventMapRepo : OngekiUserLinked<UserEventMap>
 interface OgkUserSkinRepo : OngekiUserLinked<UserSkin>
 
-interface OgkGameCardRepo : JpaRepository<GameCard, Long>
-interface OgkGameCharaRepo : JpaRepository<GameChara, Long>
-interface OgkGameEventRepo : JpaRepository<GameEvent, Long>
-interface OgkGameMusicRepo : JpaRepository<GameMusic, Long>
-interface OgkGamePointRepo : JpaRepository<GamePoint, Long>
-interface OgkGamePresentRepo : JpaRepository<GamePresent, Long>
-interface OgkGameRewardRepo : JpaRepository<GameReward, Long>
-interface OgkGameSkillRepo : JpaRepository<GameSkill, Long>
 
 @Component
 class OngekiUserRepos(
@@ -198,7 +187,7 @@ class OngekiUserRepos(
     val musicItem: OgkUserMusicItemRepo,
     val option: OgkUserOptionRepo,
     val playlog: OgkUserPlaylogRepo,
-    val rivalData: OgkUserRivalDataRepo,
+    val rival: OgkUserRivalRepo,
     val scenario: OgkUserScenarioRepo,
     val story: OgkUserStoryRepo,
     val techCount: OgkUserTechCountRepo,
@@ -213,21 +202,22 @@ class OngekiUserRepos(
 
 @Component
 class OngekiGameRepos(
-    val card: OgkGameCardRepo,
-    val chara: OgkGameCharaRepo,
-    val event: OgkGameEventRepo,
-    val music: OgkGameMusicRepo,
-    val point: OgkGamePointRepo,
-    val present: OgkGamePresentRepo,
-    val reward: OgkGameRewardRepo,
-    val skill: OgkGameSkillRepo,
-    val gachaCard: OgkGameGachaCardRepo,
-    val gacha:OgkGameGachaRepo
-)
+    val gameData: GameDataService
+) {
+    val card = StaticRepo(gameData.ogkGameCards) { it.cardId }
+    val chara = StaticRepo(gameData.ogkGameCharas) { it.modelId }
+    val event = StaticRepo(gameData.ogkGameEvents) { it.id }
+    val music = StaticRepo(gameData.ogkGameMusics) { it.id }
+    val point = StaticRepo(gameData.ogkGamePoints) { it.id }
+    val present = StaticRepo(gameData.ogkGamePresents) { it.id }
+    val reward = StaticRepo(gameData.ogkGameRewards) { it.id }
+    val skill = StaticRepo(gameData.ogkGameSkills) { it.id }
+    val gachaCard = OngekiGameGachaCardRepo(gameData.ogkGameGachaCards)
+    val gacha = StaticRepo(gameData.ogkGameGachas) { it.gachaId }
+}
 
 @Component
 class OngekiRepos(
     val u: OngekiUserRepos,
     val g: OngekiGameRepos,
 )
-

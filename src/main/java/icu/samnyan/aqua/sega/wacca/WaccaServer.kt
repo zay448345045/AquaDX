@@ -25,7 +25,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 @RestController
-@API("/g/wacca/")
+@API("/g/SDFE/{version}")
 class WaccaServer {
     // These are lateinit autowired instead of constructor injection because the tests depend on creating
     // an instance of this class with no arguments.
@@ -79,9 +79,9 @@ class WaccaServer {
 
     /** Handle all requests */
     @API("/api/**")
-    fun handle(req: HttpServletRequest, @RB body: String): Any {
+    fun handle(req: HttpServletRequest, @RB body: String, @PV version: String): Any {
         // Normalize path
-        val path = req.requestURI.removePrefix("/g/wacca").removePrefix("/WaccaServlet")
+        val path = req.requestURI.removePrefix("/g/SDFE/${version}").removePrefix("/WaccaServlet")
             .removePrefix("/api").removePrefix("/").lowercase()
 
         if (path !in cacheMap && path !in handlerMap) {
@@ -155,7 +155,7 @@ fun WaccaServer.init() {
         if (user(uid) != null) 404 - "User already exists"
 
         val u = rp.user.save(WaccaUser().apply {
-            card = cardRepo.findByExtId(uid.uint32())() ?: (404 - "Card not found")
+            card = cardRepo.findByExtId(uid.uint32()) ?: (404 - "Card not found")
             userName = name.toString()
         })
 
@@ -205,19 +205,19 @@ fun WaccaServer.init() {
         val go = u.card?.aquaUser?.gameOptions ?: AquaGameOptions()
 
         // All unlock
-        if (go.unlockMusic && wacca.musicMapping.isNotEmpty()) {
+        if (go.waccaUnlockMusic && wacca.musicMapping.isNotEmpty()) {
             items[MUSIC_UNLOCK()] = wacca.musicMapping.map { (id, v) -> MUSIC_UNLOCK(u, id, p1 = v.notes.size.long() - 1) }
         }
-        if (go.unlockTickets) {
+        if (go.waccaUnlockTickets) {
             var i = 0
             items[TICKET()] = enabledTickets.flatMap { (1..5).map { TICKET(u, it).apply { id = (i++).toLong() } } }
         }
-        if (go.unlockChara) {
+        if (go.waccaUnlockPlates) {
             wacca.itemMapping["plates"]?.let { items[USER_PLATE()] = it.map { (k, _) -> USER_PLATE(u, k.int()) } }
         }
-        if (go.unlockCollectables) {
+        if (go.waccaUnlockCollectables) {
             // TODO: Add titles
-            mapOf("icon" to ICON, "plates" to USER_PLATE, "trophy" to TROPHY).map { (name, type) ->
+            mapOf("icon" to ICON, "trophy" to TROPHY).map { (name, type) ->
                 wacca.itemMapping[name]?.let { items[type()] = it.map { (k, _) -> type(u, k.int()) } }
             }
         }

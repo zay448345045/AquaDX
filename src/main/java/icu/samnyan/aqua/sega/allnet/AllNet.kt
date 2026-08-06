@@ -1,9 +1,7 @@
 package icu.samnyan.aqua.sega.allnet
 
 import ext.*
-import icu.samnyan.aqua.net.db.AquaNetUserRepo
 import icu.samnyan.aqua.sega.allnet.AllNetBillingDecoder.decodeAllNet
-import icu.samnyan.aqua.sega.util.AquaConst
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -14,7 +12,6 @@ import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.time.LocalDateTime
-import java.util.*
 
 @Configuration
 @ConfigurationProperties(prefix = "allnet.server")
@@ -25,6 +22,7 @@ class AllNetProps {
     val keychipSesExpire: Long = 172800000 // milliseconds
     var checkKeychip: Boolean = false
     var keychipPermissiveForTesting: Boolean = false
+    var tls: Boolean = false
     var redirect: String = "web"
 
     var placeName: String = ""
@@ -61,9 +59,8 @@ class AllNetProps {
 @Suppress("HttpUrlsUsage")
 @RestController
 class AllNet(
-    val userRepo: AquaNetUserRepo,
+    val userKeychipRepo: UserKeychipRepo,
     val keychipSessionService: KeychipSessionService,
-    val keychipRepo: KeyChipRepo,
     val props: AllNetProps
 ) {
     @API("/")
@@ -84,7 +81,7 @@ class AllNet(
 
         logger.info("AllNet /DownloadOrder : $reqMap")
 
-        val serial = reqMap["serial"] ?: AquaConst.DEFAULT_KEYCHIP_ID
+        val serial = reqMap["serial"] ?: "A69E01A8888"
         val resp = mapOf(
             "stat" to "1",
             "serial" to serial
@@ -108,10 +105,16 @@ class AllNet(
 
         var session: String? = null
 
+        val gameId = reqMap["game_id"] ?: return "".also { logger.warn("> Rejected: No game_id provided") }
+        val ver = reqMap["ver"] ?: "1.0"
+
+        if ((ver.toDoubleOrNull() ?: 0.0) < 1.0)
+            return "".also { logger.warn("> Rejected: Version $ver is not allowed (typically bad ICF)") }
+
         // Proper keychip authentication
         if (props.checkKeychip) {
             // If it's a user keychip, it should be in user database
-            val u = userRepo.findByKeychip(serial)
+            val u = findUserByIncomingSerial(serial)
             if (u != null) {
                 // Create a new session for the user
                 logger.info("> Keychip authenticated: ${u.auId} ${u.computedName}")
@@ -120,11 +123,6 @@ class AllNet(
                     region = u.region
                 }
                 session = keychipSessionService.new(u, reqMap["game_id"] ?: "").token
-            }
-
-            // Check if it's a whitelisted keychip
-            else if (!serial.isEmpty() && keychipRepo.existsByKeychipId(serial)) {
-                session = keychipSessionService.new(null, reqMap["game_id"] ?: "").token
             }
 
             else if (props.keychipPermissiveForTesting) {
@@ -138,8 +136,6 @@ class AllNet(
             }
         }
 
-        val gameId = reqMap["game_id"] ?: return "".also { logger.warn("> Rejected: No game_id provided") }
-        val ver = reqMap["ver"] ?: "1.0"
 
         val formatVer = reqMap["format_ver"] ?: ""
         val resp = props.map.mut + mapOf(
@@ -177,29 +173,32 @@ class AllNet(
         return resp.toUrl() + "\n"
     }
 
+    private fun findUserByIncomingSerial(serial: String) = when (serial.length) {
+        FULL_KEYCHIP_LENGTH -> userKeychipRepo.findByKeychipId(serial)?.user
+        SHORT_KEYCHIP_LENGTH -> {
+            // segatools only sends the first 11 characters of the keychip
+            // First, try to find it by suffixing AquaDX's generated suffix, then fall back to matching without the suffixed 4 digits
+            userKeychipRepo.findByKeychipId(serial + KEYCHIP_SUFFIX)?.user
+                ?: userKeychipRepo.findByKeychipIdStartingWith(serial)?.user
+        }
+        else -> userKeychipRepo.findByKeychipId(serial)?.user
+    }
+
     private fun switchUri(hereAddr: Str, localPort: Str, gameId: Str, ver: Str, session: Str?): Str {
         val addr = hereAddr + (if (props.hidePort) "" else ":${props.port ?: localPort}")
 
         // If keychip authentication is enabled, the game URLs will be set to /gs/{token}/{game}/...
         val base = if (session != null) "gs/$session" else "g"
+        val protocol = if (props.tls) "https" else "http"
 
-        return "http://$addr/$base/" + when (gameId) {
-            "SDBT" -> "chu2/$ver/$session/"
-            "SDHD" -> "chu3/$ver/"
-            "SDGS" -> "chu3/$ver/" // International (c3exp)
-            "SBZV" -> "diva/"
-            "SDDT" -> "ongeki/$ver/"
-            "SDEY" -> "mai/"
-            "SDGA" -> "mai2/" // International (Exp)
-            "SDGB" -> "mai2/" // International (China) - TODO: Test it
-            "SDEZ" -> "mai2/"
-            "SDFE" -> "wacca" // Note: Wacca must not end with a trailing slash
-            "SDED" -> "card/"
-            else -> ""
-        }
+        val url = "$protocol://$addr/$base/$gameId/$ver"
+        return url + (if (gameId == "SDFE") "" else "/")  // Wacca must not end with trailing slash
     }
 
     companion object {
+        const val SHORT_KEYCHIP_LENGTH = 11
+        const val FULL_KEYCHIP_LENGTH = 15
+        const val KEYCHIP_SUFFIX = "1337"
         val logger = logger()
     }
 }

@@ -2,10 +2,12 @@ package icu.samnyan.aqua.net.db
 
 import jakarta.persistence.*
 import org.springframework.data.jpa.repository.JpaRepository
+import org.hibernate.annotations.OnDelete
+import org.hibernate.annotations.OnDeleteAction
 import org.springframework.stereotype.Repository
 import java.io.Serializable
 import java.time.Instant
-import java.util.UUID
+import java.util.*
 
 fun getTokenExpiry() = Instant.now().plusSeconds(7 * 86400)
 
@@ -22,6 +24,7 @@ class SessionToken(
 
     // Linking to the AquaNetUser
     @ManyToOne
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @JoinColumn(name = "auId", referencedColumnName = "auId")
     var aquaNetUser: AquaNetUser = AquaNetUser()
 ) : Serializable

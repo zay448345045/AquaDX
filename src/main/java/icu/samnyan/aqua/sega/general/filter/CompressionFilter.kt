@@ -5,6 +5,8 @@ import ext.logger
 import ext.toJson
 import icu.samnyan.aqua.net.components.GeoIP
 import icu.samnyan.aqua.sega.allnet.TokenChecker
+import icu.samnyan.aqua.sega.general.model.GameEncryptionKey
+import icu.samnyan.aqua.sega.util.GameDataService
 import icu.samnyan.aqua.sega.util.ZLib
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
@@ -14,34 +16,77 @@ import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 import org.springframework.web.util.ContentCachingResponseWrapper
 import java.util.*
-
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.math.floor
 
 /**
  * @author samnyan (privateamusement@protonmail.com)
  */
 @Component
 class CompressionFilter(
-    val geoip: GeoIP
+    val geoip: GeoIP,
+    val gameData: GameDataService
 ) : OncePerRequestFilter() {
     companion object {
         val log = logger()
         val b64d = Base64.getMimeDecoder()
         val b64e = Base64.getMimeEncoder()
+
     }
 
+    fun truncateVersion(version: Number): Number {
+        return (floor(version.toFloat() / 5.0) * 5).toInt();
+    }
+    fun getVersion(req: HttpServletRequest, game: String): Int {
+        // NOTE: this should help with some issues regarding mismatched data
+        val expectedVersion = (req.getHeader("Mai-Encoding") ?:
+        req.getHeader("Ongeki-Encoding") ?:
+        req.getHeader("Chuni-Encoding") ?: "0.0").filterNot { it == '.' }.toInt()
+        val fallbackVersion = req.servletPath.split("/")[3].filterNot { it == '.' }.toInt()
+        return if (expectedVersion < 100 || keys.none { it.versions.contains(truncateVersion(expectedVersion)) && it.code == game })
+            fallbackVersion else expectedVersion // Versions below 1.00 are typically invalid
+    }
+
+    var keys = gameData.chu3GameEncryption + gameData.mai2GameEncryption + gameData.ogkGameEncryption
+    fun getEncryptionKeys(req: HttpServletRequest): GameEncryptionKey? {
+        val endpoint = req.servletPath.split("/").last()
+        if (endpoint.lowercase() != endpoint || endpoint.length != 32) return null
+
+        val game = req.servletPath.split("/")[2]
+        val version = getVersion(req, game)
+
+        return keys.find { it.versions.contains(truncateVersion(version)) && it.code == game }
+    }
+
+    @OptIn(ExperimentalStdlibApi::class)
     override fun doFilterInternal(req: HttpServletRequest, resp: HttpServletResponse, chain: FilterChain) {
         val isDeflate = req.getHeader("content-encoding") == "deflate"
         val isDfi = req.getHeader("pragma") == "DFI"
 
+        val keys = getEncryptionKeys(req)
+        val game = req.servletPath.split("/")[2]
+
         // Decode input
         val reqSrc = try {
             req.inputStream.readAllBytes().let {
+                if (keys != null) {
+                    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                    cipher.init(
+                        Cipher.DECRYPT_MODE,
+                        SecretKeySpec(keys.key!!.hexToByteArray(), "AES"),
+                        IvParameterSpec(keys.iv!!.hexToByteArray())
+                    )
+                    cipher.doFinal(it)
+                } else it
+            }.let {
                 if (isDeflate) ZLib.decompress(it)
                 else if (isDfi) ZLib.decompress(b64d.decode(it))
                 else it
             }
         } catch (e: Exception) {
-            log.error("Failed to decode request from ip ${geoip.getIP(req)}")
+            log.error("Failed to decode request from ip ${geoip.getIP(req)} (Version ${getVersion(req, game)}")
             resp.sendError(400, "Failed to decode request")
             return
         }
@@ -50,7 +95,19 @@ class CompressionFilter(
         val respW = ContentCachingResponseWrapper(resp)
         val result = try {
             chain.doFilter(CompressRequestWrapper(req, reqSrc), respW)
-            ZLib.compress(respW.contentAsByteArray).let { if (isDfi) b64e.encode(it) else it }
+            ZLib.compress(respW.contentAsByteArray)
+                .let { if (isDfi) b64e.encode(it) else it }
+                .let {
+                    if (keys != null) {
+                        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                        cipher.init(
+                            Cipher.ENCRYPT_MODE,
+                            SecretKeySpec(keys.key!!.hexToByteArray(), "AES"),
+                            IvParameterSpec(keys.iv!!.hexToByteArray())
+                        )
+                        cipher.doFinal(it)
+                    } else it
+                }
         } finally {
             if (respW.status != 200) {
                 val details = mapOf(
@@ -82,5 +139,5 @@ class CompressionFilter(
 
     /** Only games (other than WACCA) require response compression */
     override fun shouldNotFilter(req: HttpServletRequest) =
-        !(req.servletPath.startsWith("/g/") && !req.servletPath.startsWith("/g/wacca"))
+        !(req.servletPath.startsWith("/g/") && !req.servletPath.startsWith("/g/SDFE"))
 }

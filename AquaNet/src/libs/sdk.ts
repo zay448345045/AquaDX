@@ -9,9 +9,12 @@ import type {
   AquaNetUser, GameOption,
   UserBox,
   UserItem,
-  Dict
+  Dict,
+  GameUserOption
 } from './generalTypes'
 import type { GameName } from './scoring'
+
+export type ExportGameName = GameName | 'diva'
 
 interface ExtReqInit extends RequestInit {
   params?: { [index: string]: string }
@@ -185,8 +188,12 @@ export const USER = {
     ensureLoggedIn()
     return post('/api/v2/user/me', {})
   },
-  keychip: (): Promise<string> =>
-    post('/api/v2/user/keychip', {}).then(it => it.keychip),
+  keychips: (): Promise<string[]> =>
+    post('/api/v2/user/keychip', {}).then(it => it.keychips),
+  addKeychip: (keychipId: string): Promise<string> =>
+    post('/api/v2/user/keychip/add', { keychipId }).then(it => it.keychipId),
+  deleteKeychip: (keychipId: string) =>
+    post('/api/v2/user/keychip/delete', { keychipId }),
   setting: (key: string, value: string) =>
     post('/api/v2/user/setting', { key: key === 'password' ? 'pwHash' : key, value }),
   uploadPfp: (file: File) => {
@@ -198,6 +205,8 @@ export const USER = {
   ensureLoggedIn,
   changeRegion: (regionId: number) =>
     post('/api/v2/user/change-region', { regionId }),
+  deleteAccount: () =>
+    post('/api/v2/user/delete-account'),
 }
 
 export const USERBOX = {
@@ -227,11 +236,11 @@ export const GAME = {
     post(`/api/v2/game/mai2/my-photo`, { }),
   userSummary: (username: string, game: GameName): Promise<GenericGameSummary> =>
     post(`/api/v2/game/${game}/user-summary`, { username }),
-  ranking: (game: GameName): Promise<GenericRanking[]> =>
-    post(`/api/v2/game/${game}/ranking`, { }),
+  ranking: (game: GameName, page?: number): Promise<GenericRanking[]> =>
+    post(`/api/v2/game/${game}/ranking`, typeof page === "number" ? { page } : {}),
   changeName: (game: GameName, newName: string): Promise<{ newName: string }> =>
     post(`/api/v2/game/${game}/change-name`, { newName }),
-  export: (game: GameName): Promise<Record<string, any>> =>
+  export: (game: ExportGameName): Promise<Record<string, any>> =>
     post(`/api/v2/game/${game}/export`),
   import: (game: GameName, data: any): Promise<Record<string, any>> =>
     post(`/api/v2/game/${game}/import`, {}, { json: data }),
@@ -255,6 +264,10 @@ export const SETTING = {
     post('/api/v2/settings/set', { key, value: `${value}` }),
   detailSet: (game: string, field: string, value: any) =>
     post(`/api/v2/game/${game}/user-detail-set`, { field, value }),
+  optionGet: (game: string): Promise<GameUserOption> =>
+    post(`/api/v2/game/${game}/user-option`),
+  optionSet: (game: string, field: string, value: number): Promise<void> =>
+    post(`/api/v2/game/${game}/user-option-set`, { field, value }),
 }
 
 export const TRANSFER = {

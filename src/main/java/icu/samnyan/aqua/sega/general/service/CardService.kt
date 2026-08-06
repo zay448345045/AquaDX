@@ -1,35 +1,32 @@
 package icu.samnyan.aqua.sega.general.service
 
+import ext.Bool
+import ext.Str
 import ext.minus
+import icu.samnyan.aqua.net.Fedy
 import icu.samnyan.aqua.net.db.AquaNetUser
 import icu.samnyan.aqua.sega.general.dao.CardRepository
 import icu.samnyan.aqua.sega.general.model.Card
+import icu.samnyan.aqua.sega.general.model.CardTimestamp
+import icu.samnyan.aqua.sega.general.model.CardTimestampRepo
 import org.springframework.stereotype.Service
+import java.time.Instant
 import java.time.LocalDateTime
-import java.util.*
 import java.util.concurrent.ThreadLocalRandom
-import kotlin.jvm.optionals.getOrNull
 
 /**
  * @author samnyan (privateamusement@protonmail.com)
  */
 @Service
-class CardService(val cardRepo: CardRepository)
+class CardService(val cardRepo: CardRepository, val cardTimestampRepo: CardTimestampRepo, val fedy: Fedy)
 {
-    /**
-     * Find a card by External ID
-     * @param extId External ID
-     * @return Optional of a Card
-     */
-    fun getCardByExtId(extId: String): Optional<Card> = cardRepo.findByExtId(extId.toLong())
-
     /**
      * Find a card by External ID
      *
      * @param extId External ID
      * @return Optional of a Card
      */
-    fun getCardByExtId(extId: Long?): Optional<Card> = cardRepo.findByExtId(extId)
+    fun getCardByExtId(extId: Long): Card? = cardRepo.findByExtId(extId)
 
     /**
      * Register a new card with access code
@@ -58,19 +55,19 @@ class CardService(val cardRepo: CardRepository)
         val idm = id.replace(":", "").replace(" ", "")
 
         // Check case (1) and (4)
-        cardRepo.findByLuid(idm)?.getOrNull()?.let { return it }
-        cardRepo.findByLuid(idm.padStart(20, '0'))?.getOrNull()?.let { return it }
+        cardRepo.findByLuid(idm)?.let { return it }
+        cardRepo.findByLuid(idm.padStart(20, '0'))?.let { return it }
 
         // Check case (2)
         // Then convert to long, left pad zeros to make 20 digits, and look up
         idm.toLongOrNull(16)?.let { idmLong ->
-            cardRepo.findByLuid("%020d".format(idmLong))?.getOrNull()?.let { return it }
+            cardRepo.findByLuid("%020d".format(idmLong))?.let { return it }
         }
 
         // Check case (3)
         idm.padStart(16, '0').takeLast(12).let { "012E$it" }.let { idmMasked ->
             idmMasked.toLongOrNull(16)?.let { idmMaskedLong ->
-                cardRepo.findByLuid("%020d".format(idmMaskedLong))?.getOrNull()?.let { return it }
+                cardRepo.findByLuid("%020d".format(idmMaskedLong))?.let { return it }
             }
         }
 
@@ -101,9 +98,18 @@ class CardService(val cardRepo: CardRepository)
 
     fun randExtID(lower: Long = 0, upper: Long = 1e9.toLong() - 1): Long {
         var eid = ThreadLocalRandom.current().nextLong(lower, upper)
-        while (cardRepo.findByExtId(eid).isPresent) {
+        while (cardRepo.findByExtId(eid) != null) {
             eid = ThreadLocalRandom.current().nextLong(lower, upper)
         }
         return eid
+    }
+
+    fun getCardTimestamp(card: Card, game: Str, now: Instant = Instant.now()) =
+        cardTimestampRepo.findByCardIdAndGame(card.id, game) ?: CardTimestamp(game = game, card = card, createdAt = now, updatedAt = now);
+
+    fun updateCardTimestamp(card: Card, game: Str, now: Instant = Instant.now(), resetCreatedAt: Bool = false) {
+        cardTimestampRepo.save(getCardTimestamp(card, game, now).apply { updatedAt = now }
+            .apply { if (resetCreatedAt) createdAt = now });
+        fedy.onDataUpdated(card.extId, game, resetCreatedAt)
     }
 }

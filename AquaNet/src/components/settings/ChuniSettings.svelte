@@ -3,10 +3,11 @@
 <script lang="ts">
   import {
     type AquaNetUser,
+    type GameUserOption,
     type UserBox,
     type UserItem,
   } from "../../libs/generalTypes";
-  import { DATA, USER, USERBOX, GAME } from "../../libs/sdk";
+  import { DATA, USER, USERBOX, GAME, SETTING } from "../../libs/sdk";
   import { t, ts } from "../../libs/i18n";
   import { FADE_IN, FADE_OUT, USERBOX_DEFAULT_URL } from "../../libs/config";
   import { fade, slide } from "svelte/transition";
@@ -23,15 +24,19 @@
   import { DDS } from "../../libs/userbox/dds";
   import ChuniMatchingSettings from "./ChuniMatchingSettings.svelte";
   import InputField from "../ui/InputField.svelte";
+  import UserOptionSlider from "./UserOptionSlider.svelte";
 
   let user: AquaNetUser
   let [loading, error, submitting, preview] = [true, "", "", ""]
   let changed: string[] = [];
 
+  let userOptions: GameUserOption = {};
+  let userIsUsingPreset = false;
+
   // Available (unlocked) options for each kind of item
   // In allItems: 'namePlate', 'frame', 'trophy', 'mapIcon', 'systemVoice', 'avatarAccessory'
   let allItems: Record<string, Record<string, { name: string }>> = {}
-  let iKinds = { namePlate: 1, frame: 2, trophy: 3, trophySub1: 4, trophySub2: 5, mapIcon: 8, systemVoice: 9, avatarAccessory: 11 }
+  let iKinds = { namePlate: 1, frame: 2, trophy: 3, trophySub1: 4, trophySub2: 5, mapIcon: 8, systemVoice: 9, avatarAccessory: 11, stage: 13 }
   // In userbox: 'nameplateId', 'frameId', 'trophyId', 'mapIconId', 'voiceId', 'avatar{Wear/Head/Face/Skin/Item/Front/Back}'
   let userbox: UserBox
   let avatarKinds = ['Wear', 'Head', 'Face', 'Skin', 'Item', 'Front', 'Back'] as const
@@ -89,6 +94,13 @@
     console.log("All items", allItems)
     console.log("Userbox", userbox)
 
+    userOptions = await SETTING.optionGet('chu3').catch(_ => {
+      loading = false
+      error = t("userbox.error.nodata")
+    }) as GameUserOption
+    if (userOptions["optionSet"] != 3)
+      userIsUsingPreset = true;
+    
     loading = false
   }
 
@@ -167,7 +179,7 @@
     try {
       data = await GAME.export('chu3')
     }
-    catch (e) {
+    catch (e: any) {
       error = e.message
       submitting = ""
       return
@@ -242,16 +254,6 @@
     link.click();
   }
 
-  function g(v: string) {
-    if (v != ("\x63\x68\x75\x6E\x69\x74\x68\x6D ").repeat(3).trim()) return;
-    const t = v.substring(5, 6) + v.substring(1, 2) + "eme";
-    if (!localStorage.getItem(t)) {
-      localStorage.setItem(t, v.substring(0, 1) + "\x6E");
-    } else
-      localStorage.removeItem(t);
-    setTimeout(location.reload, 1000); // ?
-  }
-
   let DDSreader: DDS | undefined;
 
   let USERBOX_PROGRESS = 0;
@@ -266,7 +268,7 @@
 
   type OnlyNumberPropsOf<T extends Record<string, any>> = {[Prop in keyof T as (T[Prop] extends number ? Prop : never)]: T[Prop]}
   let userboxSelected: keyof OnlyNumberPropsOf<UserBox> = "avatarWear";
-  const userboxNewOptions = ["systemVoice", "frame", "trophy", "mapIcon"]
+  const userboxNewOptions = ["systemVoice", "frame", "trophy", "mapIcon", "stage"]
 
   async function userboxSafeDrop(event: Event & { currentTarget: EventTarget & HTMLInputElement; }) {
     if (!event.target) return null;
@@ -316,33 +318,67 @@
 
 <StatusOverlays {error} loading={loading || !!submitting} />
 {#if !loading && !error}
-<div out:fade={FADE_OUT} in:fade={FADE_IN}>
-  <h2>{t("userbox.header.general")}</h2>
+<div>
   <div class="general-options">
     <GameSettingFields game="chu3"/>
 
     <InputField bind:field={userNameField}
       callback={() => USERBOX.setUserBox({ field: "userName", value: userNameField.value })}/>
+
+    <!-- User Options -->
+    {#if userIsUsingPreset}
+      <blockquote class="info">
+        {t('settings.options.all.preset-warning')}
+      </blockquote>
+    {/if}
+    <div class="fields-ranges">
+      <UserOptionSlider 
+        game="chu3" type="headphone" 
+        minValue={0} maxValue={60} 
+        defaultValue={userOptions["headphone"]} 
+        getTextFunction={(value: number) => `${((value / 60) * 100).toFixed(0)}%`} 
+       />
+      <UserOptionSlider 
+        game="chu3" type="trackSkip" 
+        minValue={0} maxValue={7} 
+        defaultValue={userOptions["trackSkip"]} 
+        getTextFunction={(value: number) => [t('settings.options.all.none'), `S`, `S+`, `SS`, `SS+`, `SSS`, `SSS+`, t('settings.options.all.personal-best')][value]} 
+      />
+      <UserOptionSlider 
+        game="chu3" type="speed" 
+        minValue={0} maxValue={61} 
+        defaultValue={userOptions["speed"]} 
+        getTextFunction={(value: number) => value >= 61 ? "SONIC" : value < 55 ? `${(value / 4) + 1}` : `${value - 40}`} 
+      />
+      <UserOptionSlider 
+        game="chu3" type="speed_120" 
+        minValue={0} maxValue={61} 
+        defaultValue={userOptions["speed_120"]} 
+        getTextFunction={(value: number) => value >= 61 ? "SONIC" : value < 55 ? `${(value / 4) + 1}` : `${value - 40}`} 
+      />
+    </div>
   </div>
   <h2>{t("userbox.header.userbox")}</h2>
   {#if !USERBOX_ENABLED.value || !USERBOX_INSTALLED}
     <div class="fields">
       {#each userItems as { iKey, ubKey, items }, i}
-        <div class="field">
-          <label for={ubKey}>{ts(`userbox.${ubKey}`)}</label>
-          <div>
-            <select bind:value={userbox[ubKey]} id={ubKey} on:change={() => changed = [...changed, ubKey]}>
-              {#each items as option}
-                <option value={option.itemId}>{allItems[iKey][option.itemId]?.name || `(unknown ${option.itemId})`}</option>
-              {/each}
-            </select>
-            {#if changed.includes(ubKey)}
-              <button transition:slide={{axis: "x"}} on:click={() => submit(ubKey)} disabled={!!submitting}>
-                {t("settings.profile.save")}
-              </button>
-            {/if}
+        {#if items.length > 0}
+          <div class="field">
+            <label for={ubKey}>{ts(`userbox.${ubKey}`)}</label>
+            <div>
+              <select bind:value={userbox[ubKey]} id={ubKey} on:change={() => changed = [...changed, ubKey]}>
+                {#each items as option}
+                  <option value={option.itemId}>{allItems[iKey][option.itemId]?.name || `(unknown ${option.itemId})`}</option>
+                {/each}
+              </select>
+              {#if changed.includes(ubKey)}
+                <button transition:slide={{axis: "x"}} on:click={() => submit(ubKey)} disabled={!!submitting}>
+                  {t("settings.profile.save")}
+                </button>
+              {/if}
+            </div>
           </div>
-        </div>
+        {/if}
       {/each}
     </div>
   {:else}
@@ -383,24 +419,27 @@
     </div>
     <div class="fields">
       {#each userItems.filter(i => userboxNewOptions.includes(i.iKey)) as { iKey, ubKey, items }, i}
-        <div class="field">
-          <label for={ubKey}>{ts(`userbox.${ubKey}`)}</label>
-          <div>
-            <select bind:value={userbox[ubKey]} id={ubKey} on:change={() => changed = [...changed, ubKey]}>
-              {#each items as option}
-                <option value={option.itemId}>{allItems[iKey][option.itemId]?.name || `(unknown ${option.itemId})`}</option>
-              {/each}
-            </select>
-            {#if changed.includes(ubKey)}
-              <button transition:slide={{axis: "x"}} on:click={() => submit(ubKey)} disabled={!!submitting}>
-                {t("settings.profile.save")}
-              </button>
-            {/if}
+        {#if items.length > 0}
+          <div class="field">
+            <label for={ubKey}>{ts(`userbox.${ubKey}`)}</label>
+            <div>
+              <select bind:value={userbox[ubKey]} id={ubKey} on:change={() => changed = [...changed, ubKey]}>
+                {#each items as option}
+                  <option value={option.itemId}>{allItems[iKey][option.itemId]?.name || `(unknown ${option.itemId})`}</option>
+                {/each}
+              </select>
+              {#if changed.includes(ubKey)}
+                <button transition:slide={{axis: "x"}} on:click={() => submit(ubKey)} disabled={!!submitting}>
+                  {t("settings.profile.save")}
+                </button>
+              {/if}
+            </div>
           </div>
-        </div>
+        {/if}
       {/each}
     </div>
   {/if}
+
   {#if USERBOX_INSTALLED}
     <!-- god this is a mess but idgaf atp -->
     <div class="field boolean" style:margin-top="1em">
@@ -442,7 +481,7 @@
       <span>{USERBOX_SETUP_MODE ? t('userbox.new.url_warning') : USERBOX_SETUP_TEXT}</span>
       <div class="actions">
         {#if USERBOX_SETUP_MODE}
-          <input type="text" on:keyup={e => {if (e.key == "Enter") { userboxHandleInput((e.target as HTMLInputElement).value) } else g(e.currentTarget.value)}} class="add-margin" placeholder="Base URL">
+          <input type="text" on:keyup={e => {if (e.key == "Enter") { userboxHandleInput((e.target as HTMLInputElement).value) }}} class="add-margin" placeholder="Base URL">
         {:else}
           {#if USERBOX_PROGRESS != 0}
             <div class="progress">
@@ -476,10 +515,6 @@
 
 input
   width: 100%
-
-
-h2
-  margin-bottom: 0.5rem
 
 .general-options
   display: flex
@@ -523,36 +558,6 @@ p.notice
     height: 100%
     opacity: 0
 
-.preview
-  margin-top: 32px
-  display: flex
-  flex-wrap: wrap
-  justify-content: space-between
-  gap: 32px
-
-  > div
-    position: relative
-    width: 100px
-    height: 100px
-    overflow: hidden
-    background: vars.$ov-lighter
-    border-radius: vars.$border-radius
-
-    span
-      position: absolute
-      bottom: 0
-      width: 100%
-      text-align: center
-      z-index: 10
-      background: rgba(0, 0, 0, 0.2)
-      backdrop-filter: blur(2px)
-
-    img
-      position: absolute
-      inset: 0
-      width: 100%
-      height: 100%
-      object-fit: contain
 
 .fields
   display: flex
@@ -604,6 +609,18 @@ p.notice
 
     .desc
       opacity: 0.6
+
+
+.fields-ranges
+  display: flex
+  flex-wrap: wrap
+  margin: 0.5rem 0
+  gap: 0 1rem
+  justify-content: center
+
+  :global(.field)
+    flex: calc(50% - 1rem)
+    width: 50%
 
 /* AquaBox */
 

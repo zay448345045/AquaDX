@@ -3,37 +3,56 @@ package icu.samnyan.aqua.sega.chusan.model.userdata
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.databind.DeserializationContext
-import com.fasterxml.jackson.databind.JsonDeserializer
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize
-import com.fasterxml.jackson.databind.annotation.JsonSerialize
+import tools.jackson.core.JsonParser
+import tools.jackson.databind.DeserializationContext
+import tools.jackson.databind.ValueDeserializer
+import tools.jackson.databind.annotation.JsonDeserialize
+import tools.jackson.databind.annotation.JsonSerialize
+import ext.readLocalDateTimeArray
 import icu.samnyan.aqua.net.games.BaseEntity
 import icu.samnyan.aqua.net.games.IUserData
 import icu.samnyan.aqua.sega.chusan.model.request.UserEmoney
 import icu.samnyan.aqua.sega.general.model.Card
-import icu.samnyan.aqua.sega.util.jackson.AccessCodeSerializer
+import icu.samnyan.aqua.sega.util.AccessCodeSerializer
 import jakarta.persistence.*
 import kotlinx.io.IOException
-import lombok.NoArgsConstructor
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.time.format.ResolverStyle
+import java.time.temporal.ChronoField
 
-class FlexibleDateTimeDeserializer : JsonDeserializer<LocalDateTime?>() {
+class FlexibleDateTimeDeserializer : ValueDeserializer<LocalDateTime?>() {
     @Throws(IOException::class)
-    public override fun deserialize(p: JsonParser, ctxt: DeserializationContext?): LocalDateTime {
-        return LocalDateTime.parse(p.getText(), FORMATTER)
+    public override fun deserialize(p: JsonParser, ctxt: DeserializationContext): LocalDateTime {
+        p.readLocalDateTimeArray(ctxt)?.let { return it }
+
+        val value = p.text
+        return FORMATTERS.firstNotNullOfOrNull { formatter ->
+            runCatching { LocalDateTime.parse(value, formatter) }.getOrNull()
+        } ?: ctxt.reportInputMismatch<LocalDateTime>(
+            LocalDateTime::class.java,
+            "Invalid date-time '%s'; expected yyyy-MM-dd'T'HH:mm:ss or yyyy-MM-dd HH:mm:ss with an optional fractional second",
+            value,
+        )
     }
 
     companion object {
-        // Card Maker needs the date ending with ".0" and chunithm sends the dates without it so we need a flexible parser
-        private val FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.S]")
+        private val SPACE_SEPARATED_FORMATTER = DateTimeFormatterBuilder()
+            .parseStrict()
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+            .optionalEnd()
+            .toFormatter()
+            .withResolverStyle(ResolverStyle.STRICT)
+
+        private val FORMATTERS = listOf(DateTimeFormatter.ISO_LOCAL_DATE_TIME, SPACE_SEPARATED_FORMATTER)
     }
 }
 
 @Entity(name = "ChusanUserData")
 @Table(name = "chusan_user_data")
-@NoArgsConstructor
 class Chu3UserData : BaseEntity(), IUserData {
     @JsonSerialize(using = AccessCodeSerializer::class)
     @JsonProperty(value = "accessCode", access = JsonProperty.Access.READ_ONLY)
@@ -56,6 +75,7 @@ class Chu3UserData : BaseEntity(), IUserData {
     var nameplateId = 0
     var frameId = 0
     var characterId = 0
+    var mateId = 0
     var trophyId = 0
     var playedTutorialBit = 0
     var firstTutorialCancelNum = 0
@@ -84,6 +104,9 @@ class Chu3UserData : BaseEntity(), IUserData {
 
     @JsonIgnore
     var lastLoginDate: LocalDateTime = LocalDateTime.now()
+
+    @JsonIgnore
+    var banState: Int = 0
 
     @JsonDeserialize(using = FlexibleDateTimeDeserializer::class)
     override var lastPlayDate: LocalDateTime = LocalDateTime.now()
@@ -118,6 +141,7 @@ class Chu3UserData : BaseEntity(), IUserData {
     var netBattleConsecutiveWinCount = 0
     var charaIllustId = 0
     var skillId = 0
+    var stageId = 0
     var overPowerPoint = 0
     var overPowerRate = 0
     var overPowerLowerRank = 0

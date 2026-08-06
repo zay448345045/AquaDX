@@ -15,13 +15,15 @@ import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.repository.NoRepositoryBean
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import icu.samnyan.aqua.sega.util.GameDataService
+import icu.samnyan.aqua.sega.util.StaticRepo
 import java.util.*
 
 @NoRepositoryBean
-interface Mai2UserLinked<T>: JpaRepository<T, Long>, IUserRepo<Mai2UserDetail, T> {
+interface Mai2UserLinked<T : Any>: JpaRepository<T, Long>, IUserRepo<Mai2UserDetail, T> {
     fun findByUser_Card_ExtId(userId: Long): List<T>
     fun findByUser_Card_ExtId(userId: Long, page: Pageable): Page<T>
-    fun findSingleByUser_Card_ExtId(userId: Long): Optional<T>
+    fun findSingleByUser_Card_ExtId(userId: Long): T?
     @Transactional
     fun deleteByUser(user: Mai2UserDetail)
 }
@@ -31,21 +33,21 @@ interface Mai2MapEncountNpcRepo : Mai2UserLinked<Mai2MapEncountNpc>
 interface Mai2UserActRepo : Mai2UserLinked<Mai2UserAct>
 
 interface Mai2UserCardRepo : Mai2UserLinked<Mai2UserCard> {
-    fun findByUserAndCardId(user: Mai2UserDetail, cardId: Int): Optional<Mai2UserCard>
+    fun findByUserAndCardId(user: Mai2UserDetail, cardId: Int): Mai2UserCard?
 }
 
 interface Mai2UserCharacterRepo : Mai2UserLinked<Mai2UserCharacter> {
-    fun findByUserAndCharacterId(user: Mai2UserDetail, characterId: Int): Optional<Mai2UserCharacter>
+    fun findByUserAndCharacterId(user: Mai2UserDetail, characterId: Int): Mai2UserCharacter?
 }
 
 interface Mai2UserChargeRepo : Mai2UserLinked<Mai2UserCharge>
 
 interface Mai2UserCourseRepo : Mai2UserLinked<Mai2UserCourse> {
-    fun findByUserAndCourseId(user: Mai2UserDetail, courseId: Int): Optional<Mai2UserCourse>
+    fun findByUserAndCourseId(user: Mai2UserDetail, courseId: Int): Mai2UserCourse?
 }
 
 interface Mai2UserDataRepo : GenericUserDataRepo<Mai2UserDetail> {
-    fun findByCardExtId(userId: Long): Optional<Mai2UserDetail>
+    fun findByCardExtId(userId: Long): Mai2UserDetail?
 
     @Modifying
     @Transactional
@@ -55,40 +57,40 @@ interface Mai2UserDataRepo : GenericUserDataRepo<Mai2UserDetail> {
 interface Mai2UserExtendRepo : Mai2UserLinked<Mai2UserExtend>
 
 interface Mai2UserFavoriteRepo : Mai2UserLinked<Mai2UserFavorite> {
-    fun findByUserAndItemKind(user: Mai2UserDetail, kind: Int): Optional<Mai2UserFavorite>
+    fun findByUserAndItemKind(user: Mai2UserDetail, kind: Int): Mai2UserFavorite?
 
-    fun findByUser_Card_ExtIdAndItemKind(userId: Long, kind: Int): Optional<Mai2UserFavorite>
+    fun findByUser_Card_ExtIdAndItemKind(userId: Long, kind: Int): Mai2UserFavorite?
 }
 
 interface Mai2UserFriendSeasonRankingRepo : Mai2UserLinked<Mai2UserFriendSeasonRanking> {
-    fun findByUserAndSeasonId(user: Mai2UserDetail, seasonId: Int): Optional<Mai2UserFriendSeasonRanking>
+    fun findByUserAndSeasonId(user: Mai2UserDetail, seasonId: Int): Mai2UserFriendSeasonRanking?
 }
 
 interface Mai2UserGeneralDataRepo : Mai2UserLinked<Mai2UserGeneralData> {
-    fun findByUserAndPropertyKey(user: Mai2UserDetail, key: String): Optional<Mai2UserGeneralData>
+    fun findByUserAndPropertyKey(user: Mai2UserDetail, key: String): Mai2UserGeneralData?
 
-    fun findByUser_Card_ExtIdAndPropertyKey(userId: Long, key: String): Optional<Mai2UserGeneralData>
+    fun findByUser_Card_ExtIdAndPropertyKey(userId: Long, key: String): Mai2UserGeneralData?
 }
 
 interface Mai2UserItemRepo : Mai2UserLinked<Mai2UserItem> {
     fun findByUserCardExtIdAndItemKind(userId: Long, kind: Int): List<Mai2UserItem>
-    fun findByUserAndItemKindAndItemId(user: Mai2UserDetail, itemKind: Int, itemId: Int): Optional<Mai2UserItem>
+    fun findByUserAndItemKindAndItemId(user: Mai2UserDetail, itemKind: Int, itemId: Int): Mai2UserItem?
 
     fun findByUser_Card_ExtIdAndItemKind(userId: Long, kind: Int, page: Pageable): Page<Mai2UserItem>
 }
 
 interface Mai2UserLoginBonusRepo : Mai2UserLinked<Mai2UserLoginBonus> {
-    fun findByUserAndBonusId(user: Mai2UserDetail, bonusId: Int): Optional<Mai2UserLoginBonus>
+    fun findByUserAndBonusId(user: Mai2UserDetail, bonusId: Int): Mai2UserLoginBonus?
 }
 
 interface Mai2UserMapRepo : Mai2UserLinked<Mai2UserMap> {
-    fun findByUserAndMapId(user: Mai2UserDetail, mapId: Int): Optional<Mai2UserMap>
+    fun findByUserAndMapId(user: Mai2UserDetail, mapId: Int): Mai2UserMap?
 }
 
 interface Mai2UserMusicDetailRepo : Mai2UserLinked<Mai2UserMusicDetail>, GenericUserMusicRepo<Mai2UserMusicDetail> {
     fun findByUser_Card_ExtIdAndMusicId(userId: Long, id: Int): List<Mai2UserMusicDetail>
 
-    fun findByUserAndMusicIdAndLevel(user: Mai2UserDetail, musicId: Int, level: Int): Optional<Mai2UserMusicDetail>
+    fun findByUserAndMusicIdAndLevel(user: Mai2UserDetail, musicId: Int, level: Int): Mai2UserMusicDetail?
 
     fun findByUserId(userId: Long): List<Mai2UserMusicDetail>
 }
@@ -105,7 +107,7 @@ interface Mai2UserPlaylogRepo : GenericPlaylogRepo<Mai2UserPlaylog>, Mai2UserLin
     fun findByUserAndUserPlayDateAfter(user: Mai2UserDetail, userPlayDate: String): List<Mai2UserPlaylog>
 }
 
-interface Mai2UserPrintDetailRepo : JpaRepository<Mai2UserPrintDetail, Long>
+interface Mai2UserPrintDetailRepo : Mai2UserLinked<Mai2UserPrintDetail>
 
 interface Mai2UserUdemaeRepo : Mai2UserLinked<Mai2UserUdemae>
 
@@ -116,14 +118,6 @@ interface MAi2UserKaleidxRepo : Mai2UserLinked<Mai2UserKaleidx> {
 interface MAi2UserIntimateRepo : Mai2UserLinked<Mai2UserIntimate> {
     fun findByUserAndPartnerId(user: Mai2UserDetail, partnerId: Int): Mai2UserIntimate?
 }
-
-interface Mai2GameChargeRepo : JpaRepository<Mai2GameCharge, Long>
-
-interface Mai2GameEventRepo : JpaRepository<Mai2GameEvent, Int> {
-    fun findByEnable(enable: Boolean): List<Mai2GameEvent>
-}
-
-interface Mai2GameSellingCardRepo : JpaRepository<Mai2GameSellingCard, Long>
 
 interface Mai2UserRegionsRepo: Mai2UserLinked<UserRegions> {
     fun findByUserAndRegionId(user: Mai2UserDetail, regionId: Int): UserRegions?
@@ -152,8 +146,10 @@ class Mai2Repos(
     val userUdemae: Mai2UserUdemaeRepo,
     val userKaleidx: MAi2UserKaleidxRepo,
     val userIntimate: MAi2UserIntimateRepo,
-    val gameCharge: Mai2GameChargeRepo,
-    val gameEvent: Mai2GameEventRepo,
-    val gameSellingCard: Mai2GameSellingCardRepo,
     val userRegions: Mai2UserRegionsRepo,
-)
+    val gameData: GameDataService
+) {
+    val gameCharge = StaticRepo(gameData.mai2Charges) { it.orderId }
+    val gameEvent = StaticRepo(gameData.mai2Events) { it.id }
+    val gameSellingCard = StaticRepo(gameData.mai2SellingCards) { it.cardId }
+}

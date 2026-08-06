@@ -3,12 +3,12 @@ package icu.samnyan.aqua.net.transfer
 import ext.header
 import ext.post
 import ext.request
-import java.net.URI
 import icu.samnyan.aqua.sega.aimedb.AimeDbClient
 import icu.samnyan.aqua.sega.allnet.AllNetBillingDecoder
 import icu.samnyan.aqua.sega.allnet.AllNetBillingDecoder.decodeAllNetResp
+import java.net.URI
 
-val keychipPattern = Regex("([A-Z\\d]{4}-[A-Z\\d]{11}|[A-Z\\d]{11})")
+val keychipPattern = Regex("([A-Z\\d]{4}-[A-Z\\d]{11}|[A-Z\\d]{15})")
 
 class AllNetClient(val dns: String, val keychip: String, val game: String, val version: String, val card: String) {
     init {

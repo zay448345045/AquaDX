@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import org.apache.tika.Tika
 import org.apache.tika.mime.MimeTypes
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationContext
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity.BodyBuilder
@@ -34,8 +35,10 @@ import java.util.concurrent.locks.Lock
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
 import kotlin.reflect.KMutableProperty1
+import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.full.isSubclassOf
 import kotlin.reflect.full.memberProperties
+import kotlin.reflect.jvm.javaField
 import kotlin.reflect.jvm.jvmErasure
 
 typealias RP = RequestParam
@@ -80,7 +83,9 @@ annotation class SettingField(
 
 // Reflection
 @Suppress("UNCHECKED_CAST")
-fun <T : Any> KClass<T>.vars() = memberProperties.mapNotNull { it as? Var<T, Any> }
+fun <T : Any> KClass<T>.ownVars() = declaredMemberProperties.sortedBy { it.javaField?.declaringClass?.declaredFields?.indexOf(it.javaField) ?: Int.MAX_VALUE }.mapNotNull { it as? Var<T, Any> }
+@Suppress("UNCHECKED_CAST")
+fun <T : Any> KClass<T>.vars(): List<Var<T, Any>> = supertypes.mapNotNull { it.classifier as? KClass<*> }.filter { !it.java.isInterface }.flatMap{ it.vars() as List<Var<T, Any>> } + ownVars()
 fun <T : Any> KClass<T>.varsMap() = vars().associateBy { it.name }
 fun <T : Any> KClass<T>.getters() = java.methods.filter { it.name.startsWith("get") }
 fun <T : Any> KClass<T>.gettersMap() = getters().associateBy { it.name.removePrefix("get").firstCharLower() }
@@ -106,8 +111,10 @@ catch (e: Exception) { 400 - e.message.toString() }
 fun BodyBuilder.headers(vararg pairs: Pair<String, String>) = headers(HttpHeaders().apply { pairs.forEach { (k, v) -> set(k, v) } })
 
 // Email validation
+// Modified from:
 // https://www.baeldung.com/java-email-validation-regex
-val emailRegex = "^(?=.{1,64}@)[\\p{L}0-9_-]+(\\.[\\p{L}0-9_-]+)*@[^-][\\p{L}0-9-]+(\\.[\\p{L}0-9-]+)*(\\.[\\p{L}]{2,})$".toRegex()
+// To include more special characters
+val emailRegex = "^(?=.{1,64}@)[\\p{L}0-9_!#$%&*+/=?^`{}~-]+(\\.[\\p{L}0-9_!#$%&*+/=?^`{}~-]+)*@[^-][\\p{L}0-9-]+(\\.[\\p{L}0-9-]+)*(\\.[\\p{L}]{2,})$".toRegex()
 fun Str.isValidEmail(): Bool = emailRegex.matches(this)
 
 // Global Tools
@@ -212,6 +219,8 @@ val <K, V> Map<K, V>.mut get() = toMutableMap()
 val <T> Set<T>.mut get() = toMutableSet()
 
 fun <T> List<T>.unique(fn: (T) -> Any) = distinctBy(fn).ifEmpty { null }
+val <T> Collection<T>.csv get() = joinToString(",")
+val IntArray.csv get() = joinToString(",")
 
 // Optionals
 operator fun <T> Optional<T>.invoke(): T? = orElse(null)
@@ -228,6 +237,7 @@ fun Str.fromChusanUsername() = String(this.toByteArray(StandardCharsets.ISO_8859
 fun Str.truncate(len: Int) = if (this.length > len) this.take(len) + "..." else this
 val Str.some get() = ifBlank { null }
 val ByteArray.hexStr get() = toHexString()
+operator fun StringBuilder.plusAssign(other: String) { this.append(other) }
 
 // Coroutine
 suspend fun <T> async(block: suspend kotlinx.coroutines.CoroutineScope.() -> T): T = withContext(Dispatchers.IO) { block() }
@@ -256,6 +266,7 @@ operator fun <E> List<E>.component13(): E = get(12)
 
 inline operator fun <reified E> List<Any?>.invoke(i: Int) = get(i) as E
 val empty = emptyList<Any>()
+val emptyMap = emptyMap<Any, Any>()
 
 val <F> Pair<F, *>.l get() = component1()
 val <S> Pair<*, S>.r get() = component2()
@@ -264,3 +275,6 @@ val <S> Pair<*, S>.r get() = component2()
 val Query.exec get() = resultList.map { (it as Array<*>).toList() }
 fun List<List<Any?>>.numCsv(vararg head: Str) = head.joinToString(",") + "\n" +
     joinToString("\n") { it.joinToString(",") }
+
+// DI
+inline fun <reified T : Any> ApplicationContext.lazy() = kotlin.lazy { getBean(T::class.java) }

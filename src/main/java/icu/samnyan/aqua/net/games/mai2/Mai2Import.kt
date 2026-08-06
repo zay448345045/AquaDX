@@ -14,12 +14,13 @@ import icu.samnyan.aqua.sega.maimai2.model.userdata.*
 import org.springframework.web.bind.annotation.RestController
 import kotlin.reflect.full.declaredMembers
 
+@Suppress("UNCHECKED_CAST")
 @RestController
 @API("api/v2/game/mai2")
 class Mai2Import(
     val repos: Mai2Repos,
 ) : ImportController<Maimai2DataExport, Mai2UserDetail>(
-    "SDEZ", Maimai2DataExport::class,
+    "SDEZ", "mai2", Maimai2DataExport::class,
     exportFields = Maimai2DataExport::class.vars().associateBy {
         it.name.replace("List", "").lowercase()
     },
@@ -61,13 +62,13 @@ class Mai2Import(
             }
         },
         Maimai2DataExport::userFavoriteMusicList to { user: Mai2UserDetail, _: ExportOptions ->
-            repos.userGeneralData.findByUserAndPropertyKey(user, "favorite_music").orElse(null)
+            repos.userGeneralData.findByUserAndPropertyKey(user, "favorite_music")
                 ?.propertyValue
                 ?.takeIf { it.isNotEmpty() }
                 ?.split(",")
                 ?.mapIndexed { index, id -> Mai2UserFavoriteItem().apply { orderId = index; this.id = id.toInt() } }
                 ?: emptyList()
-        }
+        },
     ) as Map<kotlin.reflect.KMutableProperty1<Maimai2DataExport, Any>, (Mai2UserDetail, ExportOptions) -> Any?>,
     customImporters = mapOf(
         Maimai2DataExport::userPlaylogList to { export: Maimai2DataExport, user: Mai2UserDetail ->
@@ -78,13 +79,13 @@ class Mai2Import(
             if (favoriteMusicList.isNotEmpty()) {
                 val key = "favorite_music"
                 // This field always imports as incremental, since the userGeneralData field (for backwards compatibility) is processed before this
-                val data = repos.userGeneralData.findByUserAndPropertyKey(user, key).orElse(null)
+                val data = repos.userGeneralData.findByUserAndPropertyKey(user, key)
                     ?: Mai2UserGeneralData().apply { this.user = user; propertyKey = key }
                 repos.userGeneralData.save(data.apply {
                     propertyValue = favoriteMusicList.sortedBy { it.orderId }.map { it.id }.joinToString(",")
                 })
             }
-        }
+        },
     ) as Map<kotlin.reflect.KMutableProperty1<Maimai2DataExport, Any>, (Maimai2DataExport, Mai2UserDetail) -> Unit>
 ) {
     override fun createEmpty() = Maimai2DataExport()
@@ -112,6 +113,9 @@ data class Maimai2DataExport(
     var userFavoriteMusicList: List<Mai2UserFavoriteItem> = mutableListOf(),
     var userKaleidxScopeList: List<Mai2UserKaleidx> = mutableListOf(),
     var userPlaylogList: List<Mai2UserPlaylog> = mutableListOf(),
+    var userCardList: List<Mai2UserCard> = mutableListOf(),
+    var userPrintDetailList: List<Mai2UserPrintDetail> = mutableListOf(),
+    var userRegionsList: List<UserRegions> = mutableListOf(),
     // Not supported yet:
     // var userWeeklyData
     // var userMissionDataList

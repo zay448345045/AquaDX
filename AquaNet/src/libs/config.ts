@@ -10,24 +10,34 @@ export const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
 export const DISCORD_INVITE = import.meta.env.VITE_DISCORD_INVITE
 export const TELEGRAM_INVITE = import.meta.env.VITE_TELEGRAM_INVITE
 export const QQ_INVITE = import.meta.env.VITE_QQ_INVITE
+export const GITHUB_REPOSITORY = import.meta.env.VITE_GITHUB_REPOSITORY
 
 // UI
 export const FADE_OUT = { duration: 200 }
 export const FADE_IN = { delay: 400 }
 export const DEFAULT_PFP = '/assets/imgs/no_profile.png'
 
-export const ANNOUNCEMENT = '' // If set, will add an announcement to the top bar. Keep it short.
+// Key name for access key scanned from QR code
+export const ACCESSCODE_QKEY = import.meta.env.VITE_ACCESSCODE_QKEY || "accesskey"
 
-// Documentation for Userbox mode can be found in `docs/aquabox-url-mode.md`
-// Please note that if this is set, it must be manually unset by users in Chuni Settings -> Update Userbox -> Switch to URL mode -> (empty value) -> Enter key
-export const USERBOX_DEFAULT_URL = ""
+export const USERBOX_DEFAULT_URL = import.meta.env.VITE_USERBOX_DEFAULT_URL || ""
 
 export const HAS_USERBOX_ASSETS = true
+
+export const DEFAULT_GAME = import.meta.env.VITE_DEFAULT_GAME || "mai2"
 
 // Meow meow meow
 
 // Matching servers
 export const CHU3_MATCHINGS: ChusanMatchingOption[] = [
+  {
+    name: "Yukiotoko",
+    ui: "https://yukiotoko.metatable.sh/",
+    guide: "https://github.com/MewoLab/AquaDX/blob/v1-dev/docs/chu3-national-matching.md",
+    matching: "http://yukiotoko.chara.lol:9004/",
+    reflector: "http://yukiotoko.chara.lol:50201/",
+    coop: ["Missless", "CozyNet", "GMG"]
+  },
   {
     name: "林国对战",
     ui: "https://chu3-match.sega.ink/rooms",
@@ -36,12 +46,4 @@ export const CHU3_MATCHINGS: ChusanMatchingOption[] = [
     reflector: "http://reflector.naominet.live:18080/",
     coop: ["RinNET", "MysteriaNET"],
   },
-  {
-    name: "Yukiotoko",
-    ui: "https://yukiotoko.metatable.sh/",
-    guide: "https://github.com/MewoLab/AquaDX/blob/v1-dev/docs/chu3-national-matching.md",
-    matching: "http://yukiotoko.chara.lol:9004/",
-    reflector: "http://yukiotoko.chara.lol:50201/",
-    coop: ["Missless", "CozyNet", "GMG"]
-  }
 ]

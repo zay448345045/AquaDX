@@ -9,10 +9,15 @@
   import Settings from "./pages/User/Settings.svelte";
   import MaiPhoto from "./pages/MaiPhoto.svelte";
   import { pfp, tooltip } from "./libs/ui"
-  import { ANNOUNCEMENT } from "./libs/config";
+  import { ANNOUNCEMENT } from "./libs/announcement";
+  import { DEFAULT_GAME } from "./libs/config"
   import { t } from "./libs/i18n";
   import Transfer from "./pages/Transfer/Transfer.svelte";
   import { link } from "d3";
+  import Communities from "./pages/Home/Communities.svelte";
+  import LinkCard from "./pages/Home/LinkCard.svelte";
+  import SetupInstructions from "./pages/Home/SetupInstructions.svelte";
+  import PageNotFound from "./pages/PageNotFound.svelte";
 
   console.log(`%c
 ┏━┓         ┳━┓━┓┏━
@@ -30,23 +35,21 @@
   let me: AquaNetUser
   let playedMai = false
 
+  let recentGame: string = DEFAULT_GAME;
+
   if (USER.isLoggedIn())
   {
     USER.me().then(m => {
       me = m
       CARD.userGames(me.username).then(game => {
         playedMai = !!game.mai2
+        recentGame = Object.keys(game)
+          .filter(k => !!game[k])
+          .sort((a, b) => {
+            return (new Date(game[b].lastLogin)) - (new Date(game[a].lastLogin))
+          })[0] ?? "mai2"
       })
     }).catch(e => console.error(e))
-
-    const themeStyle = document.createElement("link");
-    themeStyle.rel = "stylesheet";
-    switch (localStorage.getItem("theme")) {
-      case "cn":
-        themeStyle.href = "/assets/theme/cn.css";
-    };
-    if (themeStyle.href)
-      document.head.appendChild(themeStyle);
   }
   let path = window.location.pathname;
 </script>
@@ -58,15 +61,16 @@
       <span>AquaNet</span>
     </a>
   {/if}
-  {#if ANNOUNCEMENT}
+  {#if $ANNOUNCEMENT}
     <div class="announcement">
-      <strong>{t('navigation.notice')}</strong>: {ANNOUNCEMENT}
+      <strong>{t('navigation.notice')}</strong>: {$ANNOUNCEMENT}
     </div>
   {/if}
   <a href="/home">{t('navigation.home').toLowerCase()}</a>
   <!-- <div on:click={() => alert("Coming soon™")} on:keydown={e => e.key === "Enter" && alert("Coming soon™")}
        role="button" tabindex="0">{t('navigation.maps').toLowerCase()}</div> -->
-  <a href="/ranking">{t('navigation.rankings').toLowerCase()}</a>
+  <!-- kill me -->
+  <a href={`/ranking/${recentGame}`}>{t('navigation.rankings').toLowerCase()}</a>
   {#if playedMai}
     <a href="/pictures">photo</a>
   {/if}
@@ -82,13 +86,18 @@
   <Route path="/verify" component={Welcome} /> <!-- For email verification only, backwards compatibility with AquaNet2 in the future -->
   <Route path="/reset-password" component={Welcome} />
   <Route path="/home" component={Home} />
+  <Route path="/support" component={Communities} />
+  <Route path="/cards" component={LinkCard} />
+  <Route path="/setup" component={SetupInstructions} />
   <Route path="/ranking" component={Ranking} />
   <Route path="/ranking/:game" component={Ranking} />
   <Route path="/u/:username" component={UserHome} />
   <Route path="/u/:username/:game" component={UserHome} />
   <Route path="/settings" component={Settings} />
+  <Route path="/settings/:page" component={Settings} />
   <Route path="/pictures" component={MaiPhoto} />
   <Route path="/transfer" component={Transfer} />
+  <Route component={PageNotFound} />
 </Router>
 
 <style lang="sass">

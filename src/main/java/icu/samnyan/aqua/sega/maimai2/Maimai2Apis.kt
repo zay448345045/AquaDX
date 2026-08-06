@@ -16,14 +16,17 @@ fun Maimai2ServletController.initApis() {
 
     "GetUserExtend" { mapOf(
         "userId" to uid,
-        "userExtend" to (db.userExtend.findSingleByUser_Card_ExtId(uid)() ?: (404 - "User not found"))
+        "userExtend" to (db.userExtend.findSingleByUser_Card_ExtId(uid) ?: (404 - "User not found"))
     ) }
 
-    "GetUserData" { mapOf(
-        "userId" to uid,
-        "userData" to (db.userData.findByCardExtId(uid)() ?: (404 - "User not found")),
-        "banState" to 0
-    ) }
+    "GetUserData" {
+        val user = db.userData.findByCardExtId(uid) ?: (404 - "User not found")
+        mapOf(
+            "userId" to uid,
+            "userData" to user,
+            "banState" to user.banState
+        )
+    }
 
     "GetUserLoginBonus".unpaged { db.userLoginBonus.findByUser_Card_ExtId(uid) }
     "GetUserMap".unpaged { db.userMap.findByUser_Card_ExtId(uid) }
@@ -51,12 +54,12 @@ fun Maimai2ServletController.initApis() {
     }
 
     // Maimai only request for event type 1
-    "GetGameEvent" static { mapOf("type" to 1, "gameEventList" to db.gameEvent.findByEnable(true)) }
+    "GetGameEvent" static { mapOf("type" to 1, "gameEventList" to db.gameEvent.findAll()) }
     "GetGameCharge" static { db.gameCharge.findAll().let { mapOf("length" to it.size, "gameChargeList" to it) } }
 
     "GetUserOption" { mapOf(
         "userId" to uid,
-        "userOption" to (db.userOption.findSingleByUser_Card_ExtId(uid)() ?: (404 - "User not found"))
+        "userOption" to (db.userOption.findSingleByUser_Card_ExtId(uid) ?: (404 - "User not found"))
     ) }
 
     "CreateToken" static { """{"Bearer":"meow"}""" }
@@ -75,7 +78,7 @@ fun Maimai2ServletController.initApis() {
         )
     } }
 
-    "CMGetUserPreview" { db.userData.findByCardExtId(uid)()?.let {
+    "CMGetUserPreview" { db.userData.findByCardExtId(uid)?.let {
         mapOf(
             "userId" to uid,
             "userName" to it.userName,
@@ -87,8 +90,8 @@ fun Maimai2ServletController.initApis() {
     } ?: (404 - "User not found") }
 
     "GetUserPreview" {
-        val d = db.userData.findByCardExtId(uid)() ?: (404 - "User not found")
-        val option = db.userOption.findSingleByUser_Card_ExtId(uid)()
+        val d = db.userData.findByCardExtId(uid) ?: (404 - "User not found")
+        val option = db.userOption.findSingleByUser_Card_ExtId(uid)
 
         val res = mutableMapOf(
             "userId" to uid,
@@ -122,7 +125,7 @@ fun Maimai2ServletController.initApis() {
     }
 
     "UserLogin" {
-        val d = db.userData.findByCardExtId(uid)()
+        val d = db.userData.findByCardExtId(uid)
 
         val res = mutableMapOf(
             "returnCode" to 1, "loginCount" to 1,
@@ -143,6 +146,7 @@ fun Maimai2ServletController.initApis() {
                 regionId = region
             }
             db.userRegions.save(region)
+            // d.card?.let { cardService.updateCardTimestamp(it, "mai2") } // TODO: why save regions on login?
         }
 
         res
@@ -197,7 +201,7 @@ fun Maimai2ServletController.initApis() {
     }
 
     "GetUserIntimate".unpaged {
-        val u = db.userData.findByCardExtId(uid)() ?: (404 - "User not found")
+        val u = db.userData.findByCardExtId(uid) ?: (404 - "User not found")
         db.userIntimate.findByUser(u)
     }
 
@@ -210,7 +214,8 @@ fun Maimai2ServletController.initApis() {
     "GetUserCardPrintError" static { mapOf("length" to 0, "userPrintDetailList" to empty) }
     "GetUserFriendCheck" static { mapOf("returnCode" to 0) }
     "UserFriendRegist" static { mapOf("returnCode1" to 0, "returnCode2" to 0) }
-    "GetGameNgMusicId" static { mapOf("length" to 0, "musicIdList" to empty) }
+    "GetGameNgMusicId" static { mapOf("length" to 0, "musicIdList" to empty, "ngMusicDataList" to empty) }
+    "GetGameNationalData" static { mapOf("nextIndex" to 0, "nationalDataList" to empty) }
     "GetGameTournamentInfo" static { mapOf("length" to 0, "gameTournamentInfoList" to empty) }
 
     // <phaseId: start offset days>
@@ -224,24 +229,39 @@ fun Maimai2ServletController.initApis() {
     // Kaleidoscope, added on 1.50
     // [{gateId, phaseId}]
     "GetGameKaleidxScope" { mapOf("gameKaleidxScopeList" to ls(
-        mapOf("gateId" to 1, "phaseId" to findPhase(LocalDate.of(2025, 1, 18))),
-        mapOf("gateId" to 2, "phaseId" to 2),
-        mapOf("gateId" to 3, "phaseId" to 2),
-        mapOf("gateId" to 4, "phaseId" to findPhase(LocalDate.of(2025, 2, 25))),
-        mapOf("gateId" to 5, "phaseId" to 2),
-        mapOf("gateId" to 6, "phaseId" to 2),
+        mapOf("gateId" to 1, "phaseId" to 6),
+        mapOf("gateId" to 2, "phaseId" to 6),
+        mapOf("gateId" to 3, "phaseId" to 6),
+        mapOf("gateId" to 4, "phaseId" to 6),
+        mapOf("gateId" to 5, "phaseId" to 6),
+        mapOf("gateId" to 6, "phaseId" to 6),
+        mapOf("gateId" to 7, "phaseId" to 6),
+        mapOf("gateId" to 8, "phaseId" to 6),
+        mapOf("gateId" to 9, "phaseId" to 6),
+        mapOf("gateId" to 10, "phaseId" to 13),
     )) }
     // Request: {userId}
     // Response: {userId, userKaleidxScopeList}
     "GetUserKaleidxScope".unpaged {
-        val u = db.userData.findByCardExtId(uid)() ?: (404 - "User not found")
-        val lst = db.userKaleidx.findByUser(u)
-            .mapApply { isKeyFound = true }.toMutableList()
+        val u = db.userData.findByCardExtId(uid) ?: (404 - "User not found")
+        val gates = db.userKaleidx.findByUser(u)
+            .associateBy { it.gateId }.toMutableMap()
 
-        lst += (1..6).filter { i -> lst.none { it.gateId == i } }
-            .map { Mai2UserKaleidx().apply { user = u; gateId = it } }
+        fun unlockGate(gateId: Int) {
+            gates.getOrPut(gateId) { Mai2UserKaleidx().apply { user = u; this.gateId = gateId } }
+                .apply {
+                    isGateFound = true
+                    isKeyFound = true
+                }
+        }
 
-        lst
+        (1..6).forEach(::unlockGate)
+        if (gates[6]?.isClear == true) unlockGate(7)
+        if (gates[7]?.isClear == true) unlockGate(8)
+        if (gates[8]?.isClear == true) unlockGate(9)
+        if (gates[9]?.isClear == true) unlockGate(10)
+
+        gates.values.sortedBy { it.gateId }
     }
     // Request: {userId, version, userData: [UserDetail], userPlaylogList: [UserPlaylog]}
     // Response: {userId, userItemList: [UserItem]}
@@ -342,7 +362,7 @@ fun Maimai2ServletController.initApis() {
     ) }
 
     "GetUserRecommendSelectMusic" {
-        val user = db.userData.findByCard_ExtId(uid)() ?: (404 - "User not found")
+        val user = db.userData.findByCard_ExtId(uid) ?: (404 - "User not found")
         mapOf(
             "userId" to uid,
             "userRecommendSelectionMusicIdList" to (net.recommendedMusic[user.id] ?: empty)
@@ -370,6 +390,13 @@ fun Maimai2ServletController.initApis() {
         "circleClass" to 0,
         "lastLoginDate" to "",
         "circlePointRankingList" to empty
+    ) }
+
+    "GetUserCircleChallenge" { mapOf(
+        "userId" to uid,
+        "userCircleChallenge" to null,
+        "circleCircleChallenge" to null,
+        "achievement" to 0
     ) }
 
     "GetUserCirclePointData" { mapOf(
@@ -411,8 +438,20 @@ fun Maimai2ServletController.initApis() {
         )
     ) }
 
-    "UpsertUserPlaceCircleRegist" static { mapOf(
-        "returnCode" to 0,
-        "apiName" to "UpsertUserPlaceCircleRegistApi"
-    ) }
+    // NOTE: no-op APIs moved to respect encryption
+    "UpsertUserPlaceCircleRegist" static { mapOf( "returnCode" to 0, "apiName" to "com.sega.maimai2servlet.api.UpsertUserPlaceCircleRegistApi") }
+    "GetUserScoreRanking" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.GetUserScoreRankingApi"}""" }
+    "UpsertClientBookkeeping" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UpsertClientBookkeepingApi"}""" }
+    "UpsertClientSetting" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UpsertClientSettingApi"}""" }
+    "UpsertClientTestmode" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UpsertClientTestmodeApi"}""" }
+    "UpsertClientUpload" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UpsertClientUploadApi"}""" }
+    "Ping" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.Ping"}""" }
+    "RemoveToken" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.RemoveTokenApi"}""" }
+    "CMLogin" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.CMLoginApi"}""" }
+    "CMLogout" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.CMLogoutApi"}""" }
+    "CMUpsertBuyCard" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.CMUpsertBuyCardApi"}""" }
+    "UserLogout" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UserLogoutApi"}""" }
+    "GetGameMapAreaCondition" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.GetGameMapAreaConditionApi"}""" }
+    "UpsertUserChargelog" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UpsertUserChargelogApi"}""" }
+    "UpsertClientPlayTime" static { """{"returnCode":1, "apiName":"com.sega.maimai2servlet.api.UpsertClientPlayTimeApi"}""" }
 }

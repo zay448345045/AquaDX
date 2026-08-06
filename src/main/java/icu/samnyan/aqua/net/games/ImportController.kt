@@ -1,23 +1,26 @@
 package icu.samnyan.aqua.net.games
 
+import tools.jackson.core.JacksonException
 import ext.*
+import icu.samnyan.aqua.net.Fedy
 import icu.samnyan.aqua.net.db.AquaNetUser
 import icu.samnyan.aqua.net.db.AquaUserServices
-import icu.samnyan.aqua.net.Fedy
+import icu.samnyan.aqua.net.utils.ApiException
 import icu.samnyan.aqua.net.utils.AquaNetProps
 import icu.samnyan.aqua.net.utils.SUCCESS
 import icu.samnyan.aqua.sega.general.model.Card
+import icu.samnyan.aqua.sega.general.service.CardService
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.context.annotation.Lazy
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.repository.NoRepositoryBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.LocalDateTime
-import java.util.*
 import kotlin.io.path.Path
 import kotlin.io.path.writeText
 import kotlin.reflect.KClass
-import org.springframework.context.annotation.Lazy
 
 data class ExportOptions(
     val playlogAfter: String? = null
@@ -41,15 +44,16 @@ interface IExportClass<UserModel: IUserData> {
 }
 
 @NoRepositoryBean
-interface IUserRepo<UserModel, ThisModel>: JpaRepository<ThisModel, Long> {
+interface IUserRepo<UserModel : IUserData, ThisModel : Any>: JpaRepository<ThisModel, Long> {
     fun findByUser(user: UserModel): List<ThisModel>
-    fun findSingleByUser(user: UserModel): Optional<ThisModel>
+    fun findSingleByUser(user: UserModel): ThisModel?
 }
 
 /**
  * Import controller for a game
  *
  * @param game: 4-letter Game ID
+ * @param gameName: mai2/chu3/ongeki
  * @param exportFields: Mapping of type names to variables in the export model
  *      (e.g. "Mai2UserCharacter" -> Mai2DataExport::userCharacterList)
  * @param exportRepos: Mapping of variables to repositories that can be used to find the data
@@ -57,6 +61,7 @@ interface IUserRepo<UserModel, ThisModel>: JpaRepository<ThisModel, Long> {
  */
 abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel: IUserData>(
     val game: String,
+    val gameName: String,
     val exportClass: KClass<ExportModel>,
     val exportFields: Map<String, Var<ExportModel, Any>>,
     val exportRepos: Map<Var<ExportModel, Any>, IUserRepo<UserModel, *>>,
@@ -71,7 +76,7 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
     @Autowired lateinit var netProps: AquaNetProps
     @Autowired lateinit var transManager: PlatformTransactionManager
     val trans by lazy { TransactionTemplate(transManager) }
-    @Autowired @Lazy lateinit var fedy: Fedy
+    @Autowired lateinit var cardService: CardService
 
     init {
         artemisRenames.values.forEach {
@@ -89,7 +94,7 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
         userData = userDataRepo.findByCard(c) ?: (404 - "User not found")
         exportRepos.forEach { (f, u) ->
             if (f returns List::class) f.set(this, u.findByUser(userData))
-            else u.findSingleByUser(userData)()?.let { f.set(this, it) }
+            else u.findSingleByUser(userData)?.let { f.set(this, it) }
         }
         customExporters.forEach { (f, exporter) ->
             exporter(userData, options)?.let { f.set(this, it) }
@@ -102,55 +107,87 @@ abstract class ImportController<ExportModel: IExportClass<UserModel>, UserModel:
         export(u)
     }
 
+    internal fun replaceInTransaction(existingUserData: UserModel?, auId: Long, insert: () -> Unit) {
+        trans.execute {
+            existingUserData?.also { gu ->
+                // After migration v1000.7, all user-linked entities have ON DELETE CASCADE.
+                log.info("$game Import: Replacing old data for user $auId")
+                userDataRepo.delete(gu)
+                userDataRepo.flush()
+            }
+
+            insert()
+        }
+    }
+
+    private fun parseImport(json: String): ExportModel = try {
+        json.parseJackson(exportClass.java)
+    } catch (e: Exception) {
+        val jsonError = generateSequence<Throwable>(e) { it.cause }
+            .filterIsInstance<JacksonException>()
+            .firstOrNull()
+            ?: throw e
+
+        log.warn("Rejected invalid $game import: ${jsonError.message}")
+        400 - "Invalid import data: ${jsonError.originalMessage}"
+    }
+
     @Suppress("UNCHECKED_CAST")
     @API("import")
     fun importUserData(@RP token: Str, @RB json: Str) = us.jwt.auth(token) { u ->
-        val export = json.parseJackson(exportClass.java)
-        if (!export.gameId.equals(game, true)) 400 - "Invalid game ID"
+        try {
+            val export = parseImport(json)
+            if (!export.gameId.equals(game, true)) 400 - "Invalid game ID"
 
-        val lists = listRepos.toList().associate { (f, r) -> r to f.get(export) as List<IUserEntity<UserModel>> }.vNotNull()
-        val singles = singleRepos.toList().associate { (f, r) -> r to f.get(export) as IUserEntity<UserModel> }.vNotNull()
-        var repoFieldMap = exportRepos.toList().associate { (f, r) -> r to f }
+            val lists = listRepos.toList().associate { (f, r) -> r to f.get(export) as List<IUserEntity<UserModel>> }.vNotNull()
+            val singles = singleRepos.toList().associate { (f, r) -> r to f.get(export) as IUserEntity<UserModel> }.vNotNull()
+            var repoFieldMap = exportRepos.toList().associate { (f, r) -> r to f }
 
-        // Validate new user data
-        // Check that all ids are 0 (this should be true since all ids are @JsonIgnore)
-        if (export.userData.id != 0L) 400 - "User ID must be 0"
-        lists.values.flatten().forEach { if (it.id != 0L) 400 - "ID must be 0" }
-        singles.values.forEach { if (it.id != 0L) 400 - "ID must be 0" }
+            // Validate new user data
+            // Check that all ids are 0 (this should be true since all ids are @JsonIgnore)
+            if (export.userData.id != 0L) 400 - "User ID must be 0"
+            lists.values.flatten().forEach { if (it.id != 0L) 400 - "ID must be 0" }
+            singles.values.forEach { if (it.id != 0L) 400 - "ID must be 0" }
 
-        // Set user card
-        export.userData.card = u.ghostCard
+            // Set user card
+            export.userData.card = u.ghostCard
 
-        // Check existing data
-        userDataRepo.findByCard(u.ghostCard)?.also { gu ->
-            // Store a backup of the old data
-            val fl = "${game}-backup-${u.auId}-${LocalDateTime.now().urlSafeStr()}.json"
-            (Path(netProps.importBackupPath) / fl).writeText(export(u).toJson())
-
-            // Delete the old data (After migration v1000.7, all user-linked entities have ON DELETE CASCADE)
-            log.info("$game Import: Deleting old data for user ${u.auId}")
-            userDataRepo.delete(gu)
-            userDataRepo.flush()
-        }
-
-        trans.execute {
-            // Insert new data
-            val nu = userDataRepo.save(export.userData)
-            // Set user fields
-            lists.values.flatten().forEach { it.user = nu }
-            singles.values.forEach { it.user = nu }
-            // Save new data
-            singles.forEach { (repo, single) -> (repo as IUserRepo<UserModel, Any>).save(single) }
-            lists.forEach { (repo, list) -> (repo as IUserRepo<UserModel, Any>).saveAll(list) }
-            // Handle custom importers
-            customImporters.forEach { (field, importer) ->
-                importer(export, nu)
+            // Back up existing data before starting the replacement transaction.
+            val existingUserData = userDataRepo.findByCard(u.ghostCard)
+            existingUserData?.also {
+                // Store a backup of the old data
+                val fl = "${game}-backup-${u.auId}-${LocalDateTime.now().urlSafeStr()}.json"
+                (Path(netProps.importBackupPath) / fl).writeText(export(u).toJson())
             }
+
+            replaceInTransaction(existingUserData, u.auId) {
+                // Insert new data
+                val nu = userDataRepo.save(export.userData)
+                // Set user fields
+                lists.values.flatten().forEach { it.user = nu }
+                singles.values.forEach { it.user = nu }
+                // Save new data
+                singles.forEach { (repo, single) -> (repo as IUserRepo<UserModel, Any>).save(single) }
+                lists.forEach { (repo, list) -> (repo as IUserRepo<UserModel, Any>).saveAll(list) }
+                // Handle custom importers
+                customImporters.forEach { (field, importer) ->
+                    importer(export, nu)
+                }
+            }
+
+            cardService.updateCardTimestamp(u.ghostCard, gameName, resetCreatedAt = true)
+
+            SUCCESS
+        } catch(e: Exception) {
+            if (e is ApiException) throw e
+            if (e is DataIntegrityViolationException) {
+                log.warn("Rejected conflicting $game import: ${e.message}")
+                400 - "Invalid import data: duplicate or conflicting records"
+            }
+
+            log.error(e.message, e)
+            500 - "Failed to import user data. More information can be found in the server logs (or contact an administrator for help if you do not have access)."
         }
-
-        Fedy.getGameName(game)?.let { fedy.onDataUpdated(u.ghostCard.extId, it, true) }
-
-        SUCCESS
     }
 
     /**

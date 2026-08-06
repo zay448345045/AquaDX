@@ -6,8 +6,9 @@ import icu.samnyan.aqua.net.UserRegistrar.Companion.cardExtIdEnd
 import icu.samnyan.aqua.net.UserRegistrar.Companion.cardExtIdStart
 import icu.samnyan.aqua.net.components.JWT
 import icu.samnyan.aqua.sega.allnet.AllNetProps
-import icu.samnyan.aqua.sega.allnet.KeyChipRepo
 import icu.samnyan.aqua.sega.allnet.KeychipSession
+import icu.samnyan.aqua.sega.allnet.UserKeychip
+import icu.samnyan.aqua.sega.allnet.UserKeychipRepo
 import icu.samnyan.aqua.sega.general.GameMusicPopularity
 import icu.samnyan.aqua.sega.general.dao.CardRepository
 import icu.samnyan.aqua.sega.general.model.Card
@@ -62,27 +63,32 @@ class AquaNetUser(
     var profileBio: String? = "",
     var profilePicture: String? = "",
     var optOutOfLeaderboard: Boolean = false,
+    var hideCountry: Boolean = false,
+    var displayCandidates: Boolean = false,
 
     // Email confirmation
     var emailConfirmed: Boolean = false,
 
-    @OneToOne(cascade = [CascadeType.ALL])
+    @OneToOne(cascade = [CascadeType.PERSIST, CascadeType.MERGE])
     @JoinColumn(name = "ghostCard", unique = true, nullable = false)
     var ghostCard: Card = Card(),
 
     // One user can have multiple cards
-    @OneToMany(mappedBy = "aquaUser", cascade = [CascadeType.ALL])
+    @OneToMany(mappedBy = "aquaUser", cascade = [CascadeType.PERSIST, CascadeType.MERGE])
     var cards: MutableList<Card> = mutableListOf(),
 
-    // Each user can have one keychip (if the user owns a cabinet)
+    // Each user can have multiple keychips (if the user owns cabinets)
     @JsonIgnore
-    @Column(nullable = true, length = 32, unique = true)
-    var keychip: Str? = null,
+    @OneToMany(mappedBy = "user", cascade = [CascadeType.PERSIST, CascadeType.MERGE])
+    var keychips: MutableList<UserKeychip> = mutableListOf(),
 
     // Each user's keychip can have multiple sessions
     @JsonIgnore
-    @OneToMany(mappedBy = "user", cascade = [CascadeType.ALL])
+    @OneToMany(mappedBy = "user", cascade = [CascadeType.PERSIST, CascadeType.MERGE])
     var keychipSessions: MutableList<KeychipSession> = mutableListOf(),
+
+    @Column(nullable = false)
+    var canModifyKeychips: Boolean = false,
 
     @OneToOne(cascade = [CascadeType.ALL])
     @JoinColumn(name = "gameOptions", unique = true, nullable = true)
@@ -93,7 +99,7 @@ class AquaNetUser(
     val publicFields get() = mapOf(
         "username" to username,
         "displayName" to displayName,
-        "country" to country,
+        "country" to if (hideCountry) "" else country,
         "regTime" to regTime,
         "profileLocation" to profileLocation,
         "profileBio" to profileBio,
@@ -105,7 +111,6 @@ interface AquaNetUserRepo : JpaRepository<AquaNetUser, Long> {
     fun findByAuId(auId: Long): AquaNetUser?
     fun findByEmailIgnoreCase(email: String): AquaNetUser?
     fun findByUsernameIgnoreCase(username: String): AquaNetUser?
-    fun findByKeychip(keychip: String): AquaNetUser?
     fun findByGhostCardExtId(extId: Long): AquaNetUser?
 }
 
@@ -124,7 +129,7 @@ class AquaUserServices(
     val userRepo: AquaNetUserRepo,
     val cardRepo: CardRepository,
     val hasher: PasswordEncoder,
-    val keyChipRepo: KeyChipRepo,
+    val userKeychipRepo: UserKeychipRepo,
     val allNetProps: AllNetProps,
     val jwt: JWT,
     val em: EntityManager,
@@ -144,7 +149,7 @@ class AquaUserServices(
 
     fun create(username: Str, email: Str, password: Str, country: Str, emailConfirmed: Boolean = false): AquaNetUser {
         // Create user
-        val u = AquaNetUser(
+        val user = AquaNetUser(
             username = checkUsername(username),
             email = validateEmail(email),
             pwHash = checkPwHash(password),
@@ -158,16 +163,16 @@ class AquaUserServices(
             luid = extId.toString()
             registerTime = LocalDateTime.now()
             accessTime = registerTime
-            aquaUser = u
+            aquaUser = user
             isGhost = true
         }
-        u.ghostCard = card
+        user.ghostCard = card
 
         // Save the user
-        userRepo.save(u)
+        userRepo.save(user)
         cardRepo.save(card)
 
-        return u
+        return user
     }
 
     fun update(user: AquaNetUser, key: Str, value: Str) {
@@ -184,7 +189,7 @@ class AquaUserServices(
 
     suspend fun cardByName(username: Str) =
         if (username.startsWith("user")) username.substring(4).toLongOrNull()
-            ?.let { cardRepo.findById(it).getOrNull() } ?: (404 - "Card not found")
+            ?.let { cardRepo.findById(it)() } ?: (404 - "Card not found")
         else byName(username) { it.ghostCard }
 
     suspend fun <T> cardByName(username: Str, callback: suspend (Card) -> T) = callback(cardByName(username))
@@ -192,7 +197,7 @@ class AquaUserServices(
     fun validKeychip(keychipId: Str): Bool {
         if (!allNetProps.checkKeychip) return true
         if (keychipId.isBlank()) return false
-        if (userRepo.findByKeychip(keychipId) != null || keyChipRepo.existsByKeychipId(keychipId)) return true
+        if (userKeychipRepo.findByKeychipIdStartingWith(keychipId).truthy) return true
         return false
     }
 
@@ -216,20 +221,22 @@ class AquaUserServices(
             400 - "User with username `$this` already exists"
     }
 
-    fun validateEmail(email: Str) = email.apply {
+    fun validateEmail(email: Str): Str {
         // Check if email is valid
-        if (!isValidEmail()) 400 - "Invalid email"
+        if (!email.isValidEmail()) 400 - "Invalid email"
 
         // Check if user with the same email exists
         if (userRepo.findByEmailIgnoreCase(email) != null)
             400 - "User with email `$email` already exists"
+
+        return email
     }
 
-    fun checkPwHash(password: Str) = password.run {
+    fun checkPwHash(password: Str): Str {
         // Validate password
-        if (length < 8) 400 - "Password must be at least 8 characters"
+        if (password.length < 8) 400 - "Password must be at least 8 characters"
 
-        hasher.encode(this)
+        return hasher.encode(password) ?: (500 - "Failed to hash password")
     }
 
     fun checkDisplayName(displayName: Str) = displayName.apply {
@@ -248,4 +255,6 @@ class AquaUserServices(
     }
 
     fun checkOptOutOfLeaderboard(optOutOfLeaderboard: Str) = optOutOfLeaderboard.toBoolean()
+    fun checkHideCountry(hideCountry: Str) = hideCountry.toBoolean()
+    fun checkDisplayCandidates(displayCandidates: Str) = displayCandidates.toBoolean()
 }

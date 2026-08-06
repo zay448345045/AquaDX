@@ -2,11 +2,13 @@ package icu.samnyan.aqua.sega.ongeki.model
 
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.annotation.JsonSerialize
+import tools.jackson.databind.annotation.JsonSerialize
 import icu.samnyan.aqua.net.games.*
 import icu.samnyan.aqua.sega.general.model.Card
-import icu.samnyan.aqua.sega.util.jackson.AccessCodeSerializer
+import icu.samnyan.aqua.sega.util.AccessCodeSerializer
 import jakarta.persistence.*
+import org.hibernate.annotations.OnDelete
+import org.hibernate.annotations.OnDeleteAction
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -14,6 +16,7 @@ import java.time.LocalDateTime
 class OngekiUserEntity : BaseEntity(), IUserEntity<UserData> {
     @JsonIgnore
     @ManyToOne
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @JoinColumn(name = "user_id")
     override var user: UserData = UserData()
 }

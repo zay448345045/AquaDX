@@ -1,8 +1,8 @@
 package icu.samnyan.aqua.sega.maimai2.handler
 
-import com.fasterxml.jackson.core.JsonProcessingException
-import ext.invoke
+import tools.jackson.core.JacksonException
 import ext.mapApply
+import ext.minus
 import ext.unique
 import icu.samnyan.aqua.sega.general.BaseHandler
 import icu.samnyan.aqua.sega.general.model.CardStatus
@@ -13,37 +13,44 @@ import icu.samnyan.aqua.sega.maimai2.model.request.Mai2UpsertUserAll
 import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserDetail
 import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserGeneralData
 import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserRate
-import icu.samnyan.aqua.sega.util.jackson.BasicMapper
-import lombok.AllArgsConstructor
+import icu.samnyan.aqua.sega.util.BasicMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 /**
  * @author samnyan (privateamusement@protonmail.com)
  */
-@AllArgsConstructor
 @Component("Maimai2UpsertUserAllHandler")
 class UpsertUserAllHandler(
     val mapper: BasicMapper,
     val cardService: CardService,
     val repos: Mai2Repos
 ) : BaseHandler {
-
     fun String.isValidUsername() = isNotBlank() && length <= 8
 
-    @Throws(JsonProcessingException::class)
+    // For preventing duplicates: {nonce: processed time}
+    val processed = mutableMapOf<Pair<Long, Long>, Long>()
+    fun cleanupProcessed() = processed.entries.removeIf { System.currentTimeMillis() - it.value > 5 * 60 * 1000 }
+
+    @Throws(JacksonException::class)
     override fun handle(request: Map<String, Any>): Any? {
         val upsertUserAll = mapper.convert(request, Mai2UpsertUserAll::class.java)
         val userId = upsertUserAll.userId
         val req = upsertUserAll.upsertUserAll
 
+        // Check if the request has been processed before
+        val nonce = Pair(userId, upsertUserAll.loginDateTime)
+        if (processed.containsKey(nonce)) return SUCCESS
+        processed[nonce] = System.currentTimeMillis()
+        cleanupProcessed()
+
         // If user is guest, just return OK response.
         if ((userId and 281474976710657L) == 281474976710657L) return SUCCESS
 
-        val userData = repos.userData.findByCardExtId(userId)()
+        val userData = repos.userData.findByCardExtId(userId)
         val u = repos.userData.saveAndFlush(req.userData[0].apply {
             id = userData?.id ?: 0
-            card = userData?.card ?: cardService.getCardByExtId(userId).orElseThrow()
+            card = userData?.card ?: cardService.getCardByExtId(userId) ?: (404 - "User not found")
             isNetMember = 1
 
             // Validate username
@@ -78,35 +85,35 @@ class UpsertUserAllHandler(
             listOfNotNull(
                 userExtend, userOption, userCharacterList, userMapList, userLoginBonusList, userItemList,
                 userMusicDetailList, userCourseList, userFriendSeasonRankingList, userFavoriteList,
-                userKaleidxScopeList, userIntimateList
+                userKaleidxScopeList, userIntimateList, upsertUserAll.userPlaylogList
             )
         }.flatten().forEach { it.user = u }
 
         req.userExtend?.getOrNull(0)?.let {
-            repos.userExtend.save(it.apply { id = repos.userExtend.findSingleByUser(u)()?.id ?: 0 })
+            repos.userExtend.save(it.apply { id = repos.userExtend.findSingleByUser(u)?.id ?: 0 })
         }
 
         req.userOption?.getOrNull(0)?.let {
-            repos.userOption.save(it.apply { id = repos.userOption.findSingleByUser(u)()?.id ?: 0 })
+            repos.userOption.save(it.apply { id = repos.userOption.findSingleByUser(u)?.id ?: 0 })
         }
 
         req.userCharacterList?.unique { it.characterId }?.let { news ->
             repos.userCharacter.saveAll(news.mapApply {
-                id = repos.userCharacter.findByUserAndCharacterId(u, characterId)()?.id ?: 0 }) }
+                id = repos.userCharacter.findByUserAndCharacterId(u, characterId)?.id ?: 0 }) }
 
         req.userMapList?.unique { it.mapId }?.let { news ->
             repos.userMap.saveAll(news.mapApply {
-                id = repos.userMap.findByUserAndMapId(u, mapId)()?.id ?: 0 }) }
+                id = repos.userMap.findByUserAndMapId(u, mapId)?.id ?: 0 }) }
 
         req.userLoginBonusList?.unique { it.bonusId }?.let { news ->
             repos.userLoginBonus.saveAll(news.mapApply {
-                id = repos.userLoginBonus.findByUserAndBonusId(u, bonusId)()?.id ?: 0 
+                id = repos.userLoginBonus.findByUserAndBonusId(u, bonusId)?.id ?: 0 
                 isCurrent = false
             }) }
 
         req.userRatingList?.getOrNull(0)?.let { r ->
             repos.userUdemae.saveAndFlush(r.udemae.apply {
-                id = repos.userUdemae.findSingleByUser(u)()?.id ?: 0
+                id = repos.userUdemae.findSingleByUser(u)?.id ?: 0
                 user = u
             })
 
@@ -118,23 +125,23 @@ class UpsertUserAllHandler(
 
         req.userItemList?.unique { it.itemId to it.itemKind }?.let { news ->
             repos.userItem.saveAll(news.mapApply {
-                id = repos.userItem.findByUserAndItemKindAndItemId(u, itemKind, itemId)()?.id ?: 0 }) }
+                id = repos.userItem.findByUserAndItemKindAndItemId(u, itemKind, itemId)?.id ?: 0 }) }
 
         req.userMusicDetailList?.unique { it.musicId to it.level }?.let { news ->
             repos.userMusicDetail.saveAll(news.mapApply {
-                id = repos.userMusicDetail.findByUserAndMusicIdAndLevel(u, musicId, level)()?.id ?: 0 }) }
+                id = repos.userMusicDetail.findByUserAndMusicIdAndLevel(u, musicId, level)?.id ?: 0 }) }
 
         req.userCourseList?.unique { it.courseId }?.let { news ->
             repos.userCourse.saveAll(news.mapApply {
-                id = repos.userCourse.findByUserAndCourseId(u, courseId)()?.id ?: 0 }) }
+                id = repos.userCourse.findByUserAndCourseId(u, courseId)?.id ?: 0 }) }
 
         req.userFriendSeasonRankingList?.unique { it.seasonId }?.let { news ->
             repos.userFriendSeasonRanking.saveAll(news.mapApply {
-                id = repos.userFriendSeasonRanking.findByUserAndSeasonId(u, seasonId)()?.id ?: 0 }) }
+                id = repos.userFriendSeasonRanking.findByUserAndSeasonId(u, seasonId)?.id ?: 0 }) }
 
         req.userFavoriteList?.unique { it.itemKind }?.let { news ->
             repos.userFavorite.saveAll(news.mapApply {
-                id = repos.userFavorite.findByUserAndItemKind(u, itemKind)()?.id ?: 0 }) }
+                id = repos.userFavorite.findByUserAndItemKind(u, itemKind)?.id ?: 0 }) }
 
         // Added on 1.50
         req.userKaleidxScopeList?.unique { it.gateId }?.let { lst ->
@@ -145,6 +152,9 @@ class UpsertUserAllHandler(
             repos.userIntimate.saveAll(lst.mapApply {
                 id = repos.userIntimate.findByUserAndPartnerId(u, partnerId)?.id ?: 0 }) }
 
+        // Added on SDGA 1.65 / SDGB 1.53
+        upsertUserAll.userPlaylogList?.let(repos.userPlaylog::saveAll)
+
         // 2024/10/31 Found some user data findByUserAndKindAndActivityId is not unique
         // I think userActivityList is not important, so I will ignore it
         try {
@@ -152,7 +162,7 @@ class UpsertUserAllHandler(
                 repos.userAct.saveAll(news.flatMap { listOf(it.musicList, it.playList) }.flatten()
                     .filter { it.kind != 0 && it.activityId != 0 }
                     .mapApply {
-                        // id = repos.userAct.findByUserAndKindAndActivityId(u, kind, activityId)()?.id ?: 0
+                        // id = repos.userAct.findByUserAndKindAndActivityId(u, kind, activityId)?.id ?: 0
                         user = u
                     }.sortedBy { it.sortNumber })
             }
@@ -165,19 +175,21 @@ class UpsertUserAllHandler(
             // Or userFavoritemusicList will be empty
             req.userFavoritemusicList?.let { news ->
                 val key = "favorite_music"
-                val data = repos.userGeneralData.findByUserAndPropertyKey(u, key)()
+                val data = repos.userGeneralData.findByUserAndPropertyKey(u, key)
                     ?: Mai2UserGeneralData().apply { user = u; propertyKey = key }
                 repos.userGeneralData.save(data.apply {
                     propertyValue = news.map { it.id }.joinToString(",")
                 })
             }
 
+        u.card?.let { cardService.updateCardTimestamp(it, "mai2") }
+
         return SUCCESS
     }
 
     fun saveRating(itemList: List<Mai2UserRate>, u: Mai2UserDetail, key: String) {
         val sb = itemList.joinToString(",") { "${it.musicId}:${it.level}:${it.romVersion}:${it.achievement}" }
-        val data = repos.userGeneralData.findByUserAndPropertyKey(u, key)()
+        val data = repos.userGeneralData.findByUserAndPropertyKey(u, key)
             ?: Mai2UserGeneralData().apply { user = u; propertyKey = key }
         repos.userGeneralData.save(data.apply { propertyValue = sb })
     }

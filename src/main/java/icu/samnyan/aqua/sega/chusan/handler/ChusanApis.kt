@@ -8,7 +8,7 @@ import icu.samnyan.aqua.sega.chusan.model.request.UserCMissionResp
 import icu.samnyan.aqua.sega.chusan.model.userdata.Chu3UserItem
 import icu.samnyan.aqua.sega.chusan.model.userdata.UserMusicDetail
 import icu.samnyan.aqua.sega.general.model.CardStatus
-import icu.samnyan.aqua.sega.general.model.response.UserRecentRating
+import icu.samnyan.aqua.sega.general.model.UserRecentRating
 import java.time.format.DateTimeFormatter
 
 @Suppress("UNCHECKED_CAST")
@@ -28,13 +28,26 @@ fun ChusanController.chusanInit() {
         mapOf("type" to type, "length" to 0, "gameRankingList" to lst)
     }
 
-    // VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE
     "GetGameCourseLevel" {
         // gameCourseLevelList: [{courseId: int, startDate: date, endDate: date}]
-        mapOf("length" to 0, "gameCourseLevelList" to listOf(
+        val opts = TokenChecker.getCurrentSession()?.user?.gameOptions
+        val lst = listOf(
+            // Unlock Challenge
             mapOf("courseId" to 300004, "startDate" to "2019-01-01 00:00:00", "endDate" to "2077-01-01 11:45:14"),
-            mapOf("courseId" to 300009, "startDate" to "2019-01-01 00:00:00", "endDate" to "2077-01-01 11:45:14")
-        ))
+            mapOf("courseId" to 300009, "startDate" to "2019-01-01 00:00:00", "endDate" to "2077-01-01 11:45:14"),
+        ) + (0..14).toList().map {
+            // Linked Verse
+            val difficulty = (opts?.chusanLvDifficulty ?: 5);
+            mapOf(
+                "courseId" to 500000
+                 + (if (it < 12 && difficulty == 0) 1 else difficulty)
+                 + (if (it >= 12) 1 else 0) + (it * 100),
+                "startDate" to "2019-01-01 00:00:00",
+                "endDate" to "2077-01-01 11:45:14"
+            )
+        }
+
+        mapOf("length" to lst.size, "gameCourseLevelList" to lst)
     }
 
     "GetGameUCCondition" {
@@ -55,10 +68,44 @@ fun ChusanController.chusanInit() {
         db.userChallenge.findByUser_Card_ExtId(uid)
     }
 
+    // The implementation here isn't preferable, but it's functional
+    // Condition checks if the user beat a song from a previous stage and unlocks it if so
+    fun getLinkedVerseCampaign(): List<Any> {
+        val opts = TokenChecker.getCurrentSession()?.user?.gameOptions
+        // No other conditions appear to work properly, so the request for the gates is pretty large. Sorry
+        fun getChartConditions(musicId: Int) =
+            if (opts != null && opts.chusanLvUnlockAll) {
+                listOf( mapOf("type" to 3, "conditionId" to 0, "logicalOpe" to 1, "startDate" to "2024-03-08 01:00:00", "endDate" to "2099-12-31 00:00:00") )
+            } else {
+                (0..5).toList().map {
+                    mapOf("type" to 26, "conditionId" to (musicId * 100) + it, "logicalOpe" to 2, "startDate" to "2024-03-08 01:00:00", "endDate" to "2099-12-31 00:00:00") }}
+
+        return db.gameLinkedVerse.findAll().map {
+            val lst = getChartConditions(it.musicId)
+            mapOf("linkedVerseId" to it.id + 1, "length" to lst.size, "conditionList" to lst)
+        } + // ORIGIN is always left unlocked by default
+            listOf(mapOf("linkedVerseId" to 10001, "length" to 1, "conditionList" to listOf(
+                mapOf("type" to 3, "conditionId" to 0, "logicalOpe" to 1, "startDate" to "2024-03-08 01:00:00", "endDate" to "2099-12-31 00:00:00")
+            )))
+    }
+    "GetGameLVConditionOpen" {
+        val lst = getLinkedVerseCampaign()
+        mapOf("length" to lst.size, "gameLinkedVerseConditionOpenList" to lst)
+    }
+    "GetGameLVConditionUnlock" {
+        val lst = getLinkedVerseCampaign()
+        mapOf("length" to lst.size, "gameLinkedVerseConditionUnlockList" to lst)
+    }
+
+    "GetUserLV" {
+        val lst = db.userLinkedVerse.findByUser_Card_ExtId(uid)
+        mapOf("length" to lst.size, "userLinkedVerseList" to lst, "userId" to uid)
+    }
+
     "GetUserRecMusic".paged("userRecMusicList") {
         // musicId: int, recMusicList: string
         // musicId cannot be the same with the id in recMusicList
-        val u = db.userData.findByCard_ExtId(uid)() ?: return@paged empty
+        val u = db.userData.findByCard_ExtId(uid) ?: return@paged empty
         val list = (chusan.recommendedMusic[u.id] ?: ls()).filter { it != 1 }
 
         if (list.isEmpty()) empty
@@ -66,14 +113,9 @@ fun ChusanController.chusanInit() {
     }
 
     "GetUserRecRating".paged("userRecRatingList") {
-        // ratingMin: int, ratingMax: int, recMusicList: string
-        // This doesn't work
-//        listOf(
-//            mapOf("ratingMin" to 0, "ratingMax" to 30, "recMusicList" to "2387,1;2658,1")
-//        )
+        // Unimplemented for now
         empty
     }
-    // VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE VERSE
 
     // Stub handlers
     "GetGameIdlist" { """{"type":"${data["type"]}","length":"0","gameIdlistList":[]}""" }
@@ -87,8 +129,8 @@ fun ChusanController.chusanInit() {
 
     // Net battle data
     "GetUserNetBattleData" api@ {
-        val u = db.userData.findByCard_ExtId(uid)() ?: return@api null
-        val misc = db.userMisc.findSingleByUser(u)()
+        val u = db.userData.findByCard_ExtId(uid) ?: return@api null
+        val misc = db.userMisc.findSingleByUser(u)
         val recent = db.netBattleLog.findTop20ByUserOrderByIdDesc(u)
         mapOf("userId" to uid, "userNetBattleData" to mapOf(
             "recentNBSelectMusicList" to (misc?.recentNbSelect ?: empty),
@@ -106,7 +148,7 @@ fun ChusanController.chusanInit() {
             )
         }
 
-        db.userData.findByCard_ExtId(uid)()?.card?.aquaUser?.gameOptions?.run {
+        db.userData.findByCard_ExtId(uid)?.card?.aquaUser?.gameOptions?.run {
             listOf(chusanSymbolChat1, chusanSymbolChat2, chusanSymbolChat3, chusanSymbolChat4)
                 .flatMapIndexed { i, sym -> sym?.makeSymbols(i) ?: empty }
         } ?: empty
@@ -114,11 +156,15 @@ fun ChusanController.chusanInit() {
 
     // User handlers
     "GetUserData" {
-        db.userData.findByCard_ExtId(uid)()?.let{ u -> mapOf("userId" to uid, "userData" to u) }
+        db.userData.findByCard_ExtId(uid)?.let{ u -> mapOf("userId" to uid, "userData" to u) }
     }
     "GetUserOption" {
-        val userGameOption = db.userGameOption.findSingleByUser_Card_ExtId(uid)() ?: (400 - "User not found")
+        val userGameOption = db.userGameOption.findSingleByUser_Card_ExtId(uid) ?: (400 - "User not found")
         mapOf("userId" to uid, "userGameOption" to userGameOption)
+    }
+
+    "GetUserMate" {
+        db.userMate.findByUser_Card_ExtId(uid).let{ u -> mapOf("userId" to uid, "userMateList" to u) }
     }
 
     "RollGacha" {
@@ -141,7 +187,7 @@ fun ChusanController.chusanInit() {
         parsing { UserCMissionResp().apply {
             missionId = parsing { data["missionId"]!!.int }
         } }.apply {
-            db.userCMission.findByUser_Card_ExtIdAndMissionId(uid, missionId)()?.let {
+            db.userCMission.findByUser_Card_ExtIdAndMissionId(uid, missionId)?.let {
                 point = it.point
                 userCMissionProgressList = db.userCMissionProgress.findByUser_Card_ExtIdAndMissionId(uid, missionId)
             }
@@ -151,7 +197,7 @@ fun ChusanController.chusanInit() {
     // Introduced in LMN+
     "GetUserCMissionList" api@ {
         val missions = parsing { (data["userCMissionList"] as List<JDict>).map { it["missionId"]!!.int } }
-        val u = db.userData.findByCard_ExtId(uid)() ?: return@api null
+        val u = db.userData.findByCard_ExtId(uid) ?: return@api null
 
         db.userCMission.findByUserAndMissionIdIn(u, missions).map {
             UserCMissionResp().apply {
@@ -190,10 +236,17 @@ fun ChusanController.chusanInit() {
             val items = db.userItem.findAllByUser_Card_ExtIdAndItemKind(uid, kind).mut
 
             // Check game options
-            db.userData.findByCard_ExtId(uid)()?.card?.aquaUser?.gameOptions?.let {
+            db.userData.findByCard_ExtId(uid)?.card?.aquaUser?.gameOptions?.let {
                 if (it.chusanInfinitePenguins && kind == 5) {
                     items.removeAll { it.itemId in penguins }
                     items.addAll(penguins.map { Chu3UserItem(kind, it, 999, true) })
+                }
+
+                if (it.chusanUnlock29672999Ultima && kind == 12) {
+                    val existing = items.map { item -> item.itemId }.toHashSet()
+                    setOf(2967, 2999)
+                        .filterNot { id -> id in existing }
+                        .mapTo(items) { id -> Chu3UserItem(kind, id, 1, true) }
                 }
             }
 
@@ -207,7 +260,7 @@ fun ChusanController.chusanInit() {
     "GetUserFavoriteItem".pagedWithKind("userFavoriteItemList") {
         val kind = parsing { data["kind"]!!.int }
         mapOf("kind" to kind) grabs {
-            val misc = db.userMisc.findSingleByUser_Card_ExtId(uid)()
+            val misc = db.userMisc.findSingleByUser_Card_ExtId(uid)
             when (kind) {
                 1 -> misc?.favMusic ?: empty
                 3 -> empty  // TODO: Favorite character
@@ -215,14 +268,19 @@ fun ChusanController.chusanInit() {
             }.map { mapOf("id" to it) }
         }
     }
+    "GetUserFavoriteCollection".pagedWithKind("userFavoriteCollectionList") {
+        // TODO
+        val kind = parsing { data["itemKind"]!!.int }
+        mapOf("itemKind" to kind) grabs { emptyList() }
+    }
 
     val userPreviewKeys = ("userName,reincarnationNum,level,exp,playerRating,lastGameId,lastRomVersion," +
         "lastDataVersion,trophyId,classEmblemMedal,classEmblemBase,battleRankId").split(',').toSet()
 
     "GetUserPreview" api@ {
-        val user = db.userData.findByCard_ExtId(uid)() ?: return@api null
+        val user = db.userData.findByCard_ExtId(uid) ?: return@api null
         val chara = db.userCharacter.findByUserAndCharacterId(user, user.characterId)
-        val option = db.userGameOption.findSingleByUser(user)()
+        val option = db.userGameOption.findSingleByUser(user)
         val userDict = user.toJson().jsonMap().filterKeys { it in userPreviewKeys }
 
         val res = mutableMapOf(
@@ -232,7 +290,7 @@ fun ChusanController.chusanInit() {
             "playerLevel" to option?.playerLevel,
             "rating" to option?.rating,
             "headphone" to option?.headphone,
-            "chargeState" to 1, "userNameEx" to "", "banState" to 0,
+            "chargeState" to 1, "userNameEx" to "", "banState" to user.banState,
         ) + userDict
 
         if (user.card?.status == CardStatus.MIGRATED_TO_MINATO) {
@@ -260,7 +318,7 @@ fun ChusanController.chusanInit() {
     }
 
     "GetUserRecentRating".paged("userRecentRatingList") {
-        db.userGeneralData.findByUser_Card_ExtIdAndPropertyKey(uid, "recent_rating_list")()
+        db.userGeneralData.findByUser_Card_ExtIdAndPropertyKey(uid, "recent_rating_list")
             ?.propertyValue?.some
             ?.split(',')?.dropLastWhile { it.isEmpty() }?.map { it.split(':') }
             ?.map { (musicId, level, score) -> UserRecentRating(musicId.int, level.int, "2000001", score.int) }
@@ -276,13 +334,17 @@ fun ChusanController.chusanInit() {
 
     "GetUserTeam" {
         val playDate = parsing { data["playDate"] as String }
-        val team = db.userData.findByCard_ExtId(uid)()?.card?.aquaUser?.gameOptions?.chusanTeamName?.some
-            ?: props.teamName?.some ?:  "一緒に歌おう！"
+        val team = db.userData.findByCard_ExtId(uid)?.card?.aquaUser?.gameOptions?.chusanTeamName?.some
+            ?: props.teamName?.some
 
-        mapOf(
-            "userId" to uid, "teamId" to 1, "teamRank" to 1, "teamName" to team,
-            "userTeamPoint" to mapOf("userId" to uid, "teamId" to 1, "orderId" to 1, "teamPoint" to 1, "aggrDate" to playDate)
-        )
+        if (team.isNullOrEmpty())
+            mapOf("userId" to uid, "teamId" to 0)
+        else
+            // TODO: true team implementation
+            mapOf(
+                "userId" to uid, "teamId" to 1, "teamRank" to 1, "teamName" to team,
+                "userTeamPoint" to mapOf("userId" to uid, "teamId" to 1, "orderId" to 1, "teamPoint" to 1, "aggrDate" to playDate)
+            )
     }
 
     "GetUserRegion" {
@@ -313,7 +375,7 @@ fun ChusanController.chusanInit() {
         mapOf(
             "gameSetting" to mapOf(
                 "romVersion" to "$version.00",
-                "dataVersion" to versionHelper[data["clientId"].toString()],
+                "dataVersion" to (versionHelper.get(data["clientId"].toString()) ?: "$version.00"),
                 "isMaintenance" to false,
                 "requestInterval" to 0,
                 "rebootStartTime" to now.minusHours(4).format(fmt),
@@ -322,8 +384,6 @@ fun ChusanController.chusanInit() {
                 "maxCountCharacter" to 300,
                 "maxCountItem" to 300,
                 "maxCountMusic" to 300,
-//                "matchStartTime" to now.minusHours(1).format(fmt),
-//                "matchEndTime" to now.plusHours(7).format(fmt),
                 "matchStartTime" to now.withHour(0).withMinute(1).withSecond(0).format(fmt),
                 "matchEndTime" to now.withHour(23).withMinute(59).withSecond(0).format(fmt),
                 "matchTimeLimit" to 10,
@@ -339,7 +399,7 @@ fun ChusanController.chusanInit() {
     }
 
     // Static
-    "GetGameEvent" static { db.gameEvent.findByEnable(true).let { mapOf("type" to 1, "length" to it.size, "gameEventList" to it) } }
+    "GetGameEvent" static { db.gameEvent.findAll().let { mapOf("type" to 1, "length" to it.size, "gameEventList" to it) } }
     "GetGameCharge" static { db.gameCharge.findAll().let { mapOf("length" to it.size, "gameChargeList" to it) } }
     "GetGameGacha" static { db.gameGacha.findAll().let { mapOf("length" to it.size, "gameGachaList" to it, "registIdList" to empty) } }
     "GetGameMapAreaCondition" static { ChusanData.mapAreaCondition }
@@ -347,7 +407,7 @@ fun ChusanController.chusanInit() {
     // TODO: Test login bonus
     "GameLogin" {
 //        fun process() {
-//            val u = db.userData.findByCard_ExtId(uid)() ?: return
+//            val u = db.userData.findByCard_ExtId(uid) ?: return
 //            db.userData.save(u.apply { lastLoginDate = LocalDateTime.now() })
 //
 //            if (!props.loginBonusEnable) return
@@ -355,7 +415,7 @@ fun ChusanController.chusanInit() {
 //
 //            bonusList.forEach { preset ->
 //                // Check if a user already has some progress and if not, add the login bonus entry
-//                val bonus = db.userLoginBonus.findLoginBonus(uid.int, 1, preset.id)()
+//                val bonus = db.userLoginBonus.findLoginBonus(uid.int, 1, preset.id)
 //                    ?: UserLoginBonus(1, uid.int, preset.id).let { db.userLoginBonus.save(it) }
 //                if (bonus.isFinished) return@forEach
 //
@@ -375,10 +435,10 @@ fun ChusanController.chusanInit() {
 //                        if (preset.id < 3000) bCount = 1
 //                        else finished = true
 //                    }
-//                    db.gameLoginBonus.findByRequiredDays(1, preset.id, bCount)()?.let {
+//                    db.gameLoginBonus.findByRequiredDays(1, preset.id, bCount)?.let {
 //                        db.userItem.save(UserItem(6, it.presentId, it.itemNum).apply { user = u })
 //                    }
-//                    val toSave = db.userLoginBonus.findLoginBonus(uid.int, 1, preset.id)()
+//                    val toSave = db.userLoginBonus.findLoginBonus(uid.int, 1, preset.id)
 //                        ?: UserLoginBonus().apply { user = uid.int; presetId = preset.id; version = 1 }
 //
 //                    db.userLoginBonus.save(toSave.apply {
@@ -394,4 +454,23 @@ fun ChusanController.chusanInit() {
 
         """{"returnCode":"1"}"""
     }
+
+    // NOTE: no-op APIs moved to respect encryption
+    "UpsertClientBookkeeping" static { """{"returnCode":1, "apiName":"UpsertClientBookkeepingApi"}""" }
+    "UpsertClientDevelop" static { """{"returnCode":1, "apiName":"UpsertClientDevelopApi"}""" }
+    "UpsertClientError" static { """{"returnCode":1, "apiName":"UpsertClientErrorApi"}""" }
+    "UpsertClientSetting" static { """{"returnCode":1, "apiName":"UpsertClientSettingApi"}""" }
+    "UpsertClientTestmode" static { """{"returnCode":1, "apiName":"UpsertClientTestmodeApi"}""" }
+    "CreateToken" static { """{"returnCode":1, "apiName":"CreateTokenApi"}""" }
+    "RemoveToken" static { """{"returnCode":1, "apiName":"RemoveTokenApi"}""" }
+    "UpsertClientUpload" static { """{"returnCode":1, "apiName":"UpsertClientUploadApi"}""" }
+    "PrinterLogin" static { """{"returnCode":1, "apiName":"PrinterLoginApi"}""" }
+    "PrinterLogout" static { """{"returnCode":1, "apiName":"PrinterLogoutApi"}""" }
+    "Ping" static { """{"returnCode":1, "apiName":"Ping"}""" }
+    "GameLogout" static { """{"returnCode":1, "apiName":"GameLogoutApi"}""" }
+    "RemoveMatchingMember" static { """{"returnCode":1, "apiName":"RemoveMatchingMemberApi"}""" }
+    "UpsertClientPlayTime" static { """{"returnCode":1, "apiName":"UpsertClientPlayTimeApi"}""" }
+    "UpsertClientGameStart" static { """{"returnCode":1, "apiName":"UpsertClientGameStartApi"}""" }
+    "UpsertClientGameEnd" static { """{"returnCode":1, "apiName":"UpsertClientGameEndApi"}""" }
+
 }

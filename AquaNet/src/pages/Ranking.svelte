@@ -3,59 +3,38 @@
   import { title } from "../libs/ui";
   import { GAME } from "../libs/sdk";
   import type { GenericRanking } from "../libs/generalTypes";
-  import StatusOverlays from "../components/StatusOverlays.svelte";
   import type { GameName } from "../libs/scoring";
   import { GAME_TITLE } from "../libs/i18n";
   import { t } from "../libs/i18n";
   import UserCard from "../components/UserCard.svelte";
   import Tooltip from "../components/Tooltip.svelte";
-  import Pagination from "../components/Pagination.svelte";
+  import Cap from "./Ranking/Cap.svelte";
+  import { DEFAULT_GAME } from "../libs/config";
 
-  export let game: GameName = 'mai2';
+  export let game: GameName = DEFAULT_GAME;
 
   title(`Ranking`);
 
-  let d: { users: GenericRanking[] };
+  let loadedPages: GenericRanking[][];
   let error: string | null;
 
-  let page = 1
-  const perPage = 50
-  let totalPages = 1
-
-  function handleUpdatePage(event: CustomEvent<number>) {
-    page = event.detail;
-    const url = new URL(window.location.toString())
-    url.searchParams.set('page', page.toString())
-    history.pushState({}, '', url.toString())
-    window.scrollTo(0, 0)
-  }
+  let earliestPage = 0
+  //const perPage = 50
 
   onMount(() => {
     const url = new URL(window.location.toString())
     const pageParam = url.searchParams.get('page')
-    if (pageParam) {
-      page = parseInt(pageParam, 10) || 1
-    }
-
-    window.addEventListener('popstate', () => {
-      const url = new URL(window.location.toString())
-      const pageParam = url.searchParams.get('page')
-      page = parseInt(pageParam, 10) || 1
-      window.scrollTo(0, 0)
-    })
+    if (pageParam)
+      earliestPage = parseInt(pageParam, 10) || 0
+    Promise.all([GAME.ranking(game, earliestPage)])
+      .then(([users]) => {
+        loadedPages = [ users ]
+      })
+      .catch((e) => error = e.message);
   })
-
-  Promise.all([GAME.ranking(game)])
-    .then(([users]) => {
-      d = { users }
-      totalPages = Math.ceil(users.length / perPage)
-    })
-    .catch((e) => error = e.message);
 
   let hoveringUser = "";
   let hoverLoading = false;
-
-  $: paginatedUsers = d ? d.users.slice((page - 1) * perPage, page * perPage) : []
 </script>
 
 <main class="content leaderboard">
@@ -68,13 +47,9 @@
     </nav>
   </div>
 
-  {#if d}
-    {#if page > 1}
-      <Pagination {page} {totalPages} on:updatePage={handleUpdatePage} />
-    {/if}
-
+  {#if loadedPages}
     <div class="leaderboard-container">
-      <div class="lb-user" on:mouseenter={() => hoveringUser = paginatedUsers[0]?.username} role="heading" aria-level="2">
+      <div class="lb-user" on:mouseenter={() => hoveringUser = ""} role="heading" aria-level="2">
         <span class="rank">{t("Leaderboard.Rank")}</span>
         <span class="name"></span>
         <span class="rating">{t("Leaderboard.Rating")}</span>
@@ -82,7 +57,8 @@
         <span class="fc">{t("Leaderboard.FC")}</span>
         <span class="ap">{t("Leaderboard.AP")}</span>
       </div>
-      {#each paginatedUsers as user, i (user.rank)}
+      <Cap bind:loadedPages bind:earliestPage {game} addOffset={-1} />
+      {#each loadedPages.flat() as user, i (user.rank)}
         <div class="lb-user" class:alternate={i % 2 === 1} role="listitem"
           on:mouseover={() => hoveringUser = user.username} on:focus={() => {}}>
 
@@ -94,26 +70,32 @@
               <span>{user.name}</span>
             {/if}
           </span>
-          <span class="rating">{
-            game === 'chu3' || game === 'ongeki' ?
-              (user.rating / 100).toFixed(2) :
-              user.rating.toLocaleString()
-          }</span>
+          {#if game == 'ongeki'}
+            <span class="rating">{
+              (user.rating / 1000).toFixed(3)
+            }</span>
+          {:else}
+            <span class="rating">{
+              game === 'chu3' ?
+                (user.rating / 100).toFixed(2) :
+                user.rating.toLocaleString()
+            }</span>
+          {/if}
+          
           <span class="accuracy">{(+user.accuracy).toFixed(2)}%</span>
           <span class="fc">{user.fullCombo}</span>
           <span class="ap">{user.allPerfect}</span>
         </div>
       {/each}
+    <Cap bind:loadedPages bind:earliestPage {game} addOffset={1} />
     </div>
-
-    <Pagination {page} {totalPages} on:updatePage={handleUpdatePage} />
 
     <Tooltip triggeredBy=".name" loading={hoverLoading}>
       <UserCard username={hoveringUser} {game} setLoading={l => hoverLoading = l} />
     </Tooltip>
+  {:else}
+    <p>{error}</p>
   {/if}
-
-  <StatusOverlays error={error} loading={!d} />
 </main>
 
 <style lang="sass">
@@ -166,6 +148,14 @@
 
       .accuracy
         display: none
+      .modern-rating
+        display: none
+      .legacy-rating
+        /* this is officially the worst css i've ever written dear god */
+        white-space: nowrap
+        overflow: hidden
+        text-overflow: clip
+        min-width: 3.5em !important
 
     &.alternate
       background-color: vars.$ov-light

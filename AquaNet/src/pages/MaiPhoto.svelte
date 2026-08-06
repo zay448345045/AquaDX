@@ -17,14 +17,12 @@
     <Loading/>
   {:then photos}
     {#if photos.length === 0}
-      <blockquote>{t('maiphoto.none')}</blockquote>
-    {:else}
-      <blockquote>{t('maiphoto.url_warning')}</blockquote>
+      <blockquote class="info">{t('maiphoto.none')}</blockquote>
     {/if}
     <div class="pictures">
       {#each photos as photo}
         <div class="photo-container">
-          <img class="rounded-2xl" src="{AQUA_HOST}/api/v2/game/mai2/my-photo/{photo}?token={token}" alt="Memorial" />
+          <img class="rounded-2xl" src="{AQUA_HOST}/api/v2/game/mai2/my-photo/{photo}" alt="Mai Photo" />
         </div>
       {/each}
     </div>

@@ -3,14 +3,26 @@ package icu.samnyan.aqua.net.games.mai2
 import ext.*
 import icu.samnyan.aqua.net.db.AquaUserServices
 import icu.samnyan.aqua.net.games.*
-import icu.samnyan.aqua.net.utils.*
+import icu.samnyan.aqua.net.utils.SUCCESS
+import icu.samnyan.aqua.net.utils.mai2Scores
 import icu.samnyan.aqua.sega.maimai2.handler.UploadUserPhotoHandler
-import icu.samnyan.aqua.sega.maimai2.model.*
-import icu.samnyan.aqua.sega.maimai2.model.userdata.*
+import icu.samnyan.aqua.sega.maimai2.model.Mai2Repos
+import icu.samnyan.aqua.sega.maimai2.model.Mai2UserDataRepo
+import icu.samnyan.aqua.sega.maimai2.model.Mai2UserMusicDetailRepo
+import icu.samnyan.aqua.sega.maimai2.model.Mai2UserPlaylogRepo
+import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserDetail
+import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserGeneralData
+import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserLoginBonus
+import icu.samnyan.aqua.sega.maimai2.model.userdata.Mai2UserOption
+import jakarta.annotation.PostConstruct
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RestController
-import java.util.*
+import java.security.MessageDigest
+import kotlin.text.Charsets.UTF_8
+import kotlin.jvm.optionals.getOrNull
+import kotlin.reflect.KMutableProperty1
+import kotlin.reflect.full.memberProperties
 
 @RestController
 @API("api/v2/game/mai2")
@@ -29,7 +41,7 @@ class Maimai2(
     // Only show > S rank
     override val shownRanks = mai2Scores.filter { it.first >= 97 * 10000 }
     override val settableFields: Map<String, (Mai2UserDetail, String) -> Unit> by lazy { mapOf(
-        "userName" to usernameCheck(SEGA_USERNAME_CHARS),
+        "userName" to usernameCheck(false),
         "iconId" to { u, v -> u.iconId = v.int() },
         "plateId" to { u, v -> u.plateId = v.int() },
         "titleId" to { u, v -> u.titleId = v.int() },
@@ -49,7 +61,7 @@ class Maimai2(
 
         val ratingComposition = mapOf(
             "best35" to (extra["recent_rating"] ?: ""),
-            "best15" to (extra["recent_rating_new"] ?: "")
+            "new15" to (extra["recent_rating_new"] ?: "")
         )
 
         // if isLogin than boolean or null
@@ -58,9 +70,9 @@ class Maimai2(
             us.jwt.auth(t) { u ->
                 if (u.username == username) return@auth null
                 us.cardByName(u.username) { myCard ->
-                    val user = repos.userData.findByCardExtId(card.extId).orElse(null) ?: (404 - "User not found")
-                    val myRival = repos.userGeneralData.findByUser_Card_ExtIdAndPropertyKey(myCard.extId, "favorite_rival")
-                        .map { it.propertyValue.split(',') }.orElse(emptyList()).filter { it.isNotEmpty() }.map { it.long() }
+                    val user = repos.userData.findByCardExtId(card.extId) ?: (404 - "User not found")
+                    val myRival = (repos.userGeneralData.findByUser_Card_ExtIdAndPropertyKey(myCard.extId, "favorite_rival")?.propertyValue?.split(',') ?: emptyList())
+                        .filter { it.isNotEmpty() }.map { it.long() }
                     myRival.contains(user.id)
                 }
             }
@@ -110,6 +122,7 @@ class Maimai2(
             val user = userDataRepo.findByCard(card) ?: (404 - "User not found")
             user.userName = newNameFull
             userDataRepo.save(user)
+            cardService.updateCardTimestamp(card, "mai2")
         }
         mapOf("newName" to newNameFull)
     }
@@ -132,15 +145,34 @@ class Maimai2(
             if (loginBonus.none { it.bonusId == bonusId }) {
                 // create one
                 val newBonus = Mai2UserLoginBonus().apply {
-                    user = repos.userData.findByCardExtId(card.extId).orElse(null) ?: (404 - "User not found")
+                    user = repos.userData.findByCardExtId(card.extId) ?: (404 - "User not found")
                     this.bonusId = bonusId
                     isCurrent = true
                 }
                 loginBonus.add(newBonus)
             }
             repos.userLoginBonus.saveAll(loginBonus)
+            cardService.updateCardTimestamp(card, "mai2")
         }
         SUCCESS
+    }
+
+    @API("user-option")
+    override suspend fun userOption(@RP token: String) = us.jwt.auth(token) { u ->
+        repos.userOption.findByUser_Card_ExtId(u.ghostCard.extId).getOrNull(0)
+    }
+    @API("user-option-set")
+    override suspend fun userOptionSet(@RP token: String, @RP field: String, @RP value: Int): Any = us.jwt.auth(token) { u ->
+        val gameOptions = repos.userOption.findSingleByUser_Card_ExtId(u.ghostCard.extId)
+        val property = Mai2UserOption::class.memberProperties.filterIsInstance<KMutableProperty1<Any, Any?>>().find{ it.name == field }
+
+        if (property != null && gameOptions != null) {
+            property.setter.call(gameOptions, value)
+            repos.userOption.save(gameOptions)
+            200 - "Success"
+        } else
+            400 - "Invalid parameters"
+
     }
 
     @API("owned-items")
@@ -154,10 +186,10 @@ class Maimai2(
     suspend fun setRival(@RP token: String, @RP rivalUserName: String, @RP isAdd: Boolean) = us.jwt.auth(token) { u ->
         us.cardByName(u.username) { myCard ->
             val rivalCard = us.cardByName(rivalUserName) { it }
-            val rivalUser = repos.userData.findByCardExtId(rivalCard.extId).orElse(null) ?: (404 - "User not found")
-            val myRival = repos.userGeneralData.findByUser_Card_ExtIdAndPropertyKey(myCard.extId, "favorite_rival").orElse(null)
+            val rivalUser = repos.userData.findByCardExtId(rivalCard.extId) ?: (404 - "User not found")
+            val myRival = repos.userGeneralData.findByUser_Card_ExtIdAndPropertyKey(myCard.extId, "favorite_rival")
                 ?: Mai2UserGeneralData().apply {
-                    user = repos.userData.findByCardExtId(myCard.extId).orElse(null) ?: (404 - "User not found")
+                    user = repos.userData.findByCardExtId(myCard.extId) ?: (404 - "User not found")
                     propertyKey = "favorite_rival"
                 }
             val myRivalList = myRival.propertyValue.split(',').filter { it.isNotEmpty() }.mut
@@ -172,11 +204,31 @@ class Maimai2(
 
             myRival.propertyValue = myRivalList.joinToString(",")
             repos.userGeneralData.save(myRival)
+            cardService.updateCardTimestamp(myCard, "mai2")
         }
         SUCCESS
     }
 
     val photoDir = UploadUserPhotoHandler.uploadDir.toFile().canonicalFile
+    val photoHashMap: MutableMap<String, String> = emptyMap<String, String>().toMutableMap()
+
+    // creating a ton of SHA256 hashes every launch *probably* isn't ideal but it's better than exposing token AND extid...
+
+    @OptIn(ExperimentalStdlibApi::class)
+    fun myPhotoGetHash(value: Str): Str {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(UTF_8)).toHexString()
+    }
+
+    @PostConstruct
+    fun myPhotoInit() = thread {
+        photoDir.listFiles()
+            ?.map { it.name }
+            ?.map {
+                // generate hash of photo filename as to not expose details
+                photoHashMap[it] = myPhotoGetHash(it)
+            }
+    }
 
     @API("my-photo")
     suspend fun myPhoto(@RP token: Str) = us.jwt.auth(token) { u ->
@@ -185,15 +237,20 @@ class Maimai2(
             ?.map { it.name }
             ?.filter { it.startsWith(find) }
             ?.sorted()
+            ?.map {
+                // generate hash of photo filename as to not expose details
+                if (!photoHashMap.containsKey(it))
+                    photoHashMap[it] = myPhotoGetHash(it)
+                photoHashMap[it]
+            }
             ?: emptyList()
     }
 
     @API("my-photo/{fileName}", produces = [MediaType.IMAGE_JPEG_VALUE])
-    suspend fun myPhoto(@RP token: Str, @PV fileName: Str) = us.jwt.auth(token) { u ->
-        val f = (photoDir / fileName)
-        if (!f.canonicalFile.startsWith(photoDir)) (403 - "Never gonna give you up")
-        if (!f.name.startsWith("${u.ghostCard.extId}-")) (403 - "Not your photo")
-        if (!f.exists()) (404 - "Photo not found")
-        f.readBytes()
+    suspend fun accessMyPhoto(@PV fileName: Str): ByteArray {
+        val trueFileName = photoHashMap.entries.firstOrNull { it.value == fileName }?.key
+        if (trueFileName.isNullOrEmpty()) 404 - "Photo does not exist"
+        val file = (photoDir / trueFileName)
+        return file.readBytes()
     }
 }
